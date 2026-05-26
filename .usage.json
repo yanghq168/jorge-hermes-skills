@@ -1,28 +1,80 @@
 {
+  "ai-news-daily": {
+    "archived_at": null,
+    "created_at": "2026-05-26T15:55:21.947624+00:00",
+    "created_by": null,
+    "last_patched_at": null,
+    "last_used_at": "2026-05-26T16:41:16.896392+00:00",
+    "last_viewed_at": "2026-05-26T16:41:16.892467+00:00",
+    "patch_count": 0,
+    "pinned": false,
+    "state": "active",
+    "use_count": 3,
+    "view_count": 3
+  },
+  "content-platforms": {
+    "archived_at": null,
+    "created_at": "2026-05-26T16:41:37.758733+00:00",
+    "created_by": "agent",
+    "last_patched_at": "2026-05-26T17:41:18.577051+00:00",
+    "last_used_at": "2026-05-26T17:40:57.994443+00:00",
+    "last_viewed_at": "2026-05-26T17:40:57.990093+00:00",
+    "patch_count": 19,
+    "pinned": false,
+    "state": "active",
+    "use_count": 16,
+    "view_count": 16
+  },
+  "daily-report": {
+    "archived_at": null,
+    "created_at": "2026-05-26T15:53:26.966106+00:00",
+    "created_by": null,
+    "last_patched_at": null,
+    "last_used_at": "2026-05-26T16:41:09.930654+00:00",
+    "last_viewed_at": "2026-05-26T16:41:09.926146+00:00",
+    "patch_count": 0,
+    "pinned": false,
+    "state": "active",
+    "use_count": 2,
+    "view_count": 2
+  },
   "github": {
     "archived_at": null,
     "created_at": "2026-05-26T15:32:14.340987+00:00",
     "created_by": null,
     "last_patched_at": null,
-    "last_used_at": "2026-05-26T15:32:14.344994+00:00",
-    "last_viewed_at": "2026-05-26T15:32:14.341015+00:00",
+    "last_used_at": "2026-05-26T15:52:27.872945+00:00",
+    "last_viewed_at": "2026-05-26T15:52:27.869038+00:00",
     "patch_count": 0,
     "pinned": false,
     "state": "active",
-    "use_count": 1,
-    "view_count": 1
+    "use_count": 2,
+    "view_count": 2
   },
   "openclaw-to-hermes-migration": {
     "archived_at": null,
     "created_at": "2026-05-26T14:36:46.847402+00:00",
     "created_by": "agent",
-    "last_patched_at": "2026-05-26T15:35:00.022653+00:00",
-    "last_used_at": "2026-05-26T15:32:09.849777+00:00",
-    "last_viewed_at": "2026-05-26T15:32:09.846519+00:00",
-    "patch_count": 24,
+    "last_patched_at": "2026-05-26T15:45:26.884597+00:00",
+    "last_used_at": "2026-05-26T15:52:15.925969+00:00",
+    "last_viewed_at": "2026-05-26T15:52:15.922465+00:00",
+    "patch_count": 31,
     "pinned": false,
     "state": "active",
-    "use_count": 13,
-    "view_count": 13
+    "use_count": 24,
+    "view_count": 24
+  },
+  "tencent-docs": {
+    "archived_at": null,
+    "created_at": "2026-05-26T15:55:26.028700+00:00",
+    "created_by": null,
+    "last_patched_at": null,
+    "last_used_at": "2026-05-26T15:55:26.037516+00:00",
+    "last_viewed_at": "2026-05-26T15:55:26.028717+00:00",
+    "patch_count": 0,
+    "pinned": false,
+    "state": "active",
+    "use_count": 1,
+    "view_count": 1
   }
 }

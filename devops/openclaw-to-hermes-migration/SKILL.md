@@ -285,11 +285,15 @@ hermes skills list
 For step-by-step cron job migration patterns, see:
 - `references/cron-job-migration-patterns.md` — Categorization, path mapping, config loading, LLM replacement decisions, email patterns, directory layout, verification.
 - `references/qq-email-smtp-setup.md` — QQ Mail SMTP configuration (common in Chinese OpenClaw workspaces for content distribution).
+- `references/post-migration-permissions-audit.md` — Systematic audit of SSH keys, email auth, Git credentials, API tokens, and remote server access after migration.
+- `references/github-token-types.md` — GitHub Fine-Grained vs Classic PAT differences for Git operations vs API calls.
 
 ## Templates
 
 - `templates/cron-config-loader.py` — Unified config loader for migrated cron jobs. Copy to `~/.hermes/cron/scripts/config_loader.py` and customize paths.
 - `templates/cron-config.yaml` — Unified configuration template. Copy to `~/.hermes/cron/config/config.yaml` and fill in your credentials.
+- `templates/backup-repo-setup.sh` — Script to create new GitHub backup repos (skills + agency) with SSH auth. Run after migration to set up separate backup targets that do NOT overwrite existing OpenClaw repos.
+- `references/github-token-types.md` — GitHub Fine-Grained vs Classic PAT differences. Critical: Fine-Grained PATs (`github_pat_*`) do NOT work for Git operations (push/clone). Use SSH keys or Classic PATs for backup scripts.
 
 ## Related
 

@@ -51,6 +51,17 @@ This is the most portable method — works everywhere, no SSH config needed.
 - **Classic PAT** (`ghp_*`) — Works for BOTH Git operations AND API calls. Use this for automation.
 - **Fine-Grained PAT** (`github_pat_*`) — ONLY works for API calls (`curl`, `gh api`). Does NOT work for `git push`/`git clone`. If the user provides a `github_pat_*` token and Git operations fail with "Password authentication is not supported", ask for a Classic PAT instead.
 
+**Key difference in practice:**
+```bash
+# Fine-Grained PAT — API only ✅, Git operations ❌
+curl -H "Authorization: token github_pat_xxx" https://api.github.com/user/repos   # ✅ Works
+git push https://oauth2:github_pat_xxx@github.com/user/repo.git                   # ❌ Fails
+
+# Classic PAT — Both work ✅
+curl -H "Authorization: token ghp_xxx" https://api.github.com/user/repos          # ✅ Works
+git push https://user:ghp_xxx@github.com/user/repo.git                            # ✅ Works
+```
+
 **Step 1: Create a personal access token**
 
 Tell the user to go to: **https://github.com/settings/tokens**
@@ -181,11 +192,20 @@ gh auth login
 ### Token-Based Login (Headless / SSH Servers)
 
 ```bash
-echo "<THEIR_TOKEN>" | gh auth login --with-token
+# Classic PAT only — Fine-Grained PATs do NOT work with --with-token
+echo "<CLASSIC_PAT_gph_xxx>" | gh auth login --with-token
+
+# For Fine-Grained PATs, use device flow (requires browser):
+gh auth login --web
 
 # Set up git credentials through gh
 gh auth setup-git
 ```
+
+**Note:** `gh auth login --with-token` only accepts **Classic PATs** (`ghp_*`). Fine-Grained PATs (`github_pat_*`) will fail silently or produce auth errors. If the user has a Fine-Grained PAT, either:
+1. Use `gh auth login --web` (device flow, requires browser access)
+2. Use SSH keys for Git + Fine-Grained PAT for API calls
+3. Ask the user to generate a Classic PAT for automation
 
 ### Verify
 
@@ -249,6 +269,14 @@ if [[ "$GITHUB_TOKEN" == github_pat_* ]]; then
   echo "Use Classic PAT (ghp_*) or SSH for Git operations."
 fi
 ```
+
+**When the user provides a Fine-Grained PAT and Git operations fail:**
+1. Explain the limitation clearly (Fine-Grained = API only)
+2. Offer three options:
+   - **SSH key** (recommended for servers): Generate key, add public key to GitHub, use SSH URLs
+   - **Classic PAT**: Ask user to create one at https://github.com/settings/tokens/new (select "Classic token")
+   - **Keep Fine-Grained for API + add SSH for Git**: Dual-auth approach
+3. Do NOT waste time trying URL variations (`oauth2:`, `x-access-token:`, etc.) — they don't work with Fine-Grained PATs
 
 ---
 
