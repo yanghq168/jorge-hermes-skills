@@ -47,11 +47,15 @@ This works on any machine with `git` installed. No root access needed.
 
 This is the most portable method — works everywhere, no SSH config needed.
 
+**⚠️ Token Type Warning:** GitHub has two types of PATs:
+- **Classic PAT** (`ghp_*`) — Works for BOTH Git operations AND API calls. Use this for automation.
+- **Fine-Grained PAT** (`github_pat_*`) — ONLY works for API calls (`curl`, `gh api`). Does NOT work for `git push`/`git clone`. If the user provides a `github_pat_*` token and Git operations fail with "Password authentication is not supported", ask for a Classic PAT instead.
+
 **Step 1: Create a personal access token**
 
 Tell the user to go to: **https://github.com/settings/tokens**
 
-- Click "Generate new token (classic)"
+- Click "Generate new token (classic)" — NOT "Fine-grained"
 - Give it a name like "hermes-agent"
 - Select scopes:
   - `repo` (full repository access — read, write, push, PRs)
@@ -59,6 +63,11 @@ Tell the user to go to: **https://github.com/settings/tokens**
   - `read:org` (if working with organization repos)
 - Set expiration (90 days is a good default)
 - Copy the token — it won't be shown again
+
+**If the user already has a Fine-Grained PAT (`github_pat_*`):**
+- It can still be used for API operations (creating repos, listing issues, etc. via `curl`)
+- But for `git push`/`git clone`, you MUST use a Classic PAT or SSH key
+- Present this as two separate auth methods: API = Fine-Grained PAT, Git = Classic PAT or SSH
 
 **Step 2: Configure git to store the token**
 
@@ -232,6 +241,15 @@ else
 fi
 ```
 
+**Token type detection:**
+```bash
+# Check if token is Fine-Grained (won't work for git operations)
+if [[ "$GITHUB_TOKEN" == github_pat_* ]]; then
+  echo "WARNING: Fine-Grained PAT detected. Git operations (push/clone) will FAIL."
+  echo "Use Classic PAT (ghp_*) or SSH for Git operations."
+fi
+```
+
 ---
 
 ## Troubleshooting
@@ -245,3 +263,5 @@ fi
 | Credentials not persisting | Check `git config --global credential.helper` — must be `store` or `cache` |
 | Multiple GitHub accounts | Use SSH with different keys per host alias in `~/.ssh/config`, or per-repo credential URLs |
 | `gh: command not found` + no sudo | Use git-only Method 1 above — no installation needed |
+| `Password authentication is not supported` with a token | You're using a **Fine-Grained PAT** (`github_pat_*`) for Git operations. These only work for API calls. Switch to a **Classic PAT** (`ghp_*`) or use SSH |
+| `gh auth login --with-token` fails with Fine-Grained PAT | `gh` device flow requires interactive browser. For headless: use Classic PAT with `git credential.helper store`, or install `gh` and use `gh auth login` interactively

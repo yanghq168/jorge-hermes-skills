@@ -1,15 +1,28 @@
 {
+  "github": {
+    "archived_at": null,
+    "created_at": "2026-05-26T15:32:14.340987+00:00",
+    "created_by": null,
+    "last_patched_at": null,
+    "last_used_at": "2026-05-26T15:32:14.344994+00:00",
+    "last_viewed_at": "2026-05-26T15:32:14.341015+00:00",
+    "patch_count": 0,
+    "pinned": false,
+    "state": "active",
+    "use_count": 1,
+    "view_count": 1
+  },
   "openclaw-to-hermes-migration": {
     "archived_at": null,
     "created_at": "2026-05-26T14:36:46.847402+00:00",
     "created_by": "agent",
-    "last_patched_at": "2026-05-26T15:25:54.310197+00:00",
-    "last_used_at": "2026-05-26T15:25:43.336065+00:00",
-    "last_viewed_at": "2026-05-26T15:25:43.332052+00:00",
-    "patch_count": 20,
+    "last_patched_at": "2026-05-26T15:35:00.022653+00:00",
+    "last_used_at": "2026-05-26T15:32:09.849777+00:00",
+    "last_viewed_at": "2026-05-26T15:32:09.846519+00:00",
+    "patch_count": 24,
     "pinned": false,
     "state": "active",
-    "use_count": 11,
-    "view_count": 11
+    "use_count": 13,
+    "view_count": 13
   }
 }

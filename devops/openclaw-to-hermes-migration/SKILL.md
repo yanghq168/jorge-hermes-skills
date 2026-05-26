@@ -208,6 +208,14 @@ When the user says "协助我一起配置" (help me configure together) or simil
 4. Report status in table format with ✅/❌ and blocking impact
 5. Handle partial completion — proceed with what we have, queue the rest
 
+**GitHub Token Type Pitfall:**
+GitHub Fine-Grained PATs (`github_pat_*`) do NOT work for Git HTTPS operations (push/clone). They only work for API calls (`curl` with `Authorization: token`). For Git operations, you MUST use either:
+- **Classic PAT** (`ghp_*`) with `repo` scope — works for both Git and API
+- **SSH key** — works for Git, separate from API tokens
+- **GitHub CLI (`gh`)** with device flow or classic token
+
+If the user provides a `github_pat_*` token and Git push fails with "Password authentication is not supported", explain this limitation and ask for a Classic PAT or SSH key instead.
+
 ## Common Pitfalls
 
 1. **Assuming full compatibility.** The SKILL.md format is compatible, but anything calling `openclaw` CLI or APIs needs rewriting.
@@ -225,6 +233,8 @@ When the user says "协助我一起配置" (help me configure together) or simil
 7. **Leaving `__pycache__` and `.pyc` files.** Clean these before installing skills to avoid clutter.
 
 8. **Not auditing permissions after migration.** SSH keys, email auth codes, API tokens, and Git credentials do NOT transfer with code. Always run the permissions audit checklist (see section 7 above).
+
+9. **Using Fine-Grained PAT for Git operations.** GitHub Fine-Grained PATs (`github_pat_*`) do NOT work for `git push`/`git clone`. They only work for API calls. For Git operations, use Classic PAT (`ghp_*`) or SSH keys.
 
 ## Verification Checklist
 
@@ -274,6 +284,7 @@ hermes skills list
 
 For step-by-step cron job migration patterns, see:
 - `references/cron-job-migration-patterns.md` — Categorization, path mapping, config loading, LLM replacement decisions, email patterns, directory layout, verification.
+- `references/qq-email-smtp-setup.md` — QQ Mail SMTP configuration (common in Chinese OpenClaw workspaces for content distribution).
 
 ## Templates
 
