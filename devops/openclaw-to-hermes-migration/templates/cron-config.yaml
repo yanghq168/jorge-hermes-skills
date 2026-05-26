@@ -1,0 +1,29 @@
+# Unified configuration for migrated cron jobs
+# Copy to ~/.hermes/cron/config/config.yaml and fill in your values
+
+mail:
+  smtp_server: "smtp.qq.com"
+  smtp_port: 465
+  smtp_user: "your_email@qq.com"
+  smtp_pass: "YOUR_AUTH_CODE"
+  to_email: "your_email@qq.com"
+
+hermes:
+  home: "/home/ubuntu/.hermes"
+  skills_dir: "/home/ubuntu/.hermes/skills"
+  memory_dir: "/home/ubuntu/.hermes/memory"
+
+paths:
+  log_dir: "/home/ubuntu/.hermes/cron/logs"
+  data_dir: "/home/ubuntu/.hermes/data"
+  scripts_dir: "/home/ubuntu/.hermes/cron/scripts"
+
+# Per-script overrides (optional)
+scripts:
+  bithappy:
+    db_path: "/home/ubuntu/.hermes/data/bithappy.db"
+  site_backup:
+    github_repo: "https://github.com/yourusername/your-repo"
+    github_token: "ghp_xxxxxxxx"
+  push_feishu:
+    webhook_url: "https://open.feishu.cn/open-apis/bot/v2/hook/xxxxxxxx"
