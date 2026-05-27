@@ -82,6 +82,95 @@ gh repo clone owner/repo-name
 gh repo clone owner/repo-name -- --depth 1
 ```
 
+### Deploying a Repo to a Remote Server
+
+When deploying a GitHub repo to a remote server via SSH, the target server often lacks GitHub credentials. Three approaches, from simplest to most robust:
+
+**Approach A: Clone locally, rsync to server (recommended)**
+```bash
+# 1. Clone locally (your machine has GitHub auth)
+git clone -b <branch> --depth 1 https://github.com/owner/repo.git /tmp/repo_deploy
+
+# 2. Sync to remote server (uses your existing SSH key to the server)
+rsync -avz --exclude='.git' -e "ssh -i ~/.ssh/your_server_key" \
+  /tmp/repo_deploy/ user@server:/var/www/target/
+```
+
+**Approach B: Server clones via HTTPS (no auth needed for public repos)**
+```bash
+ssh user@server "git clone -b <branch> --depth 1 https://github.com/owner/repo.git /var/www/target"
+```
+
+**Approach C: Server uses SSH keys (for private repos)**
+```bash
+# On the server: add GitHub to known_hosts first
+ssh user@server "mkdir -p ~/.ssh && ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null"
+
+# Then clone via SSH (server must have a GitHub-authorized SSH key)
+ssh user@server "git clone -b <branch> --depth 1 git@github.com:owner/repo.git /var/www/target"
+```
+
+**Pitfall:** If `git clone` on the server fails with "Host key verification failed", run `ssh-keyscan github.com >> ~/.ssh/known_hosts` first. If it fails with "Permission denied", the server lacks a GitHub-authorized SSH key — fall back to Approach A (local clone + rsync).
+
+### rsync Timeouts with Large Files
+
+When rsyncing large repos or assets over slow/intercontinental links, the connection may timeout mid-transfer.
+
+**Symptom:** `rsync` exits with code 124 (timeout) or hangs indefinitely.
+
+**Fix: Use tar + split + scp for reliable chunked transfer**
+```bash
+# 1. On local machine: tar and split into 1MB chunks
+cd /tmp/repo_deploy
+tar -czf ../repo.tar.gz --exclude='.git' .
+cd /tmp
+split -b 1M repo.tar.gz repo_part_
+
+# 2. Upload chunks individually (scp handles small files reliably)
+for f in repo_part_*; do
+  scp -i ~/.ssh/your_server_key "$f" user@server:/tmp/upload/
+done
+
+# 3. On server: reassemble and extract
+ssh user@server "cd /tmp/upload && cat repo_part_* > /tmp/repo.tar.gz && tar -xzf /tmp/repo.tar.gz -C /var/www/target/"
+```
+
+**Verification:** Always `md5sum` the original and reassembled tar.gz to confirm integrity:
+```bash
+# Local
+md5sum /tmp/repo.tar.gz
+# Server
+ssh user@server "md5sum /tmp/repo.tar.gz"
+```
+
+**Critical: Verify each chunk's integrity before reassembly**
+
+If a chunk transfer is interrupted, the reassembled tar.gz will be corrupt even if the total size looks correct. Always verify chunk checksums:
+
+```bash
+# Local: get chunk checksums
+md5sum /tmp/repo_part_*
+
+# Server: verify uploaded chunks match
+ssh user@server "md5sum /tmp/upload/repo_part_*"
+
+# If any chunk differs, re-upload that specific chunk only:
+scp -i ~/.ssh/your_server_key /tmp/repo_part_ac user@server:/tmp/upload/
+```
+
+**Real-world example from a 7MB deployment:**
+- `rsync -avz` timed out at ~5.6MB (code 124)
+- Split into 7 × 1MB chunks + 1 × 195KB chunk
+- `scp` each chunk individually — all succeeded
+- Server-side `cat repo_part_* > repo.tar.gz` + `tar -xzf`
+- `md5sum` confirmed integrity match
+
+**Pitfall:** The `split` command produces files in alphabetical order (`aa`, `ab`, `ac`...). `cat repo_part_*` relies on shell globbing order — always verify with `ls repo_part_*` that the order is correct, or use explicit concatenation:
+```bash
+# Safer: explicit order
+cat repo_part_aa repo_part_ab repo_part_ac ... > repo.tar.gz
+```
+
 ## 2. Creating Repositories
 
 **With gh:**
@@ -514,3 +603,8 @@ for g in json.load(sys.stdin):
 | List workflows | `gh workflow list` | `curl GET /repos/o/r/actions/workflows` |
 | Rerun CI | `gh run rerun ID` | `curl POST /repos/o/r/actions/runs/ID/rerun` |
 | Set secret | `gh secret set KEY` | `curl PUT /repos/o/r/actions/secrets/KEY` (+ encryption) |
+
+## References
+
+- `references/github-api-cheatsheet.md` — Quick API endpoint reference
+- `references/spa-transition-race-condition.md` — Debugging CSS transition issues in deployed SPAs (replaceWith + rAF timing pitfalls)

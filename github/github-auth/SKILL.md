@@ -292,4 +292,5 @@ fi
 | Multiple GitHub accounts | Use SSH with different keys per host alias in `~/.ssh/config`, or per-repo credential URLs |
 | `gh: command not found` + no sudo | Use git-only Method 1 above — no installation needed |
 | `Password authentication is not supported` with a token | You're using a **Fine-Grained PAT** (`github_pat_*`) for Git operations. These only work for API calls. Switch to a **Classic PAT** (`ghp_*`) or use SSH |
-| `gh auth login --with-token` fails with Fine-Grained PAT | `gh` device flow requires interactive browser. For headless: use Classic PAT with `git credential.helper store`, or install `gh` and use `gh auth login` interactively
+| `gh auth login --with-token` fails with Fine-Grained PAT | `gh` device flow requires interactive browser. For headless: use Classic PAT with `git credential.helper store`, or install `gh` and use `gh auth login` interactively |
+| Deploying to remote server: server can't clone private repo | The remote server lacks GitHub auth. Solutions: (1) Clone locally + rsync to server, (2) Generate server SSH key + add to GitHub, (3) Use HTTPS with token embedded in URL (less secure) |

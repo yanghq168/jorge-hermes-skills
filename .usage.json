@@ -16,40 +16,40 @@
     "archived_at": null,
     "created_at": "2026-05-26T16:41:37.758733+00:00",
     "created_by": "agent",
-    "last_patched_at": "2026-05-26T17:41:18.577051+00:00",
-    "last_used_at": "2026-05-26T17:40:57.994443+00:00",
-    "last_viewed_at": "2026-05-26T17:40:57.990093+00:00",
-    "patch_count": 19,
+    "last_patched_at": "2026-05-27T16:51:37.444053+00:00",
+    "last_used_at": "2026-05-27T16:51:15.263626+00:00",
+    "last_viewed_at": "2026-05-27T16:51:15.259891+00:00",
+    "patch_count": 34,
     "pinned": false,
     "state": "active",
-    "use_count": 16,
-    "view_count": 16
+    "use_count": 29,
+    "view_count": 29
   },
   "daily-report": {
     "archived_at": null,
     "created_at": "2026-05-26T15:53:26.966106+00:00",
     "created_by": null,
     "last_patched_at": null,
-    "last_used_at": "2026-05-26T16:41:09.930654+00:00",
-    "last_viewed_at": "2026-05-26T16:41:09.926146+00:00",
+    "last_used_at": "2026-05-27T05:36:59.912558+00:00",
+    "last_viewed_at": "2026-05-27T05:36:59.903644+00:00",
     "patch_count": 0,
     "pinned": false,
     "state": "active",
-    "use_count": 2,
-    "view_count": 2
+    "use_count": 3,
+    "view_count": 3
   },
   "github": {
     "archived_at": null,
     "created_at": "2026-05-26T15:32:14.340987+00:00",
     "created_by": null,
     "last_patched_at": null,
-    "last_used_at": "2026-05-26T15:52:27.872945+00:00",
-    "last_viewed_at": "2026-05-26T15:52:27.869038+00:00",
+    "last_used_at": "2026-05-27T14:50:07.648231+00:00",
+    "last_viewed_at": "2026-05-27T14:50:07.644331+00:00",
     "patch_count": 0,
     "pinned": false,
     "state": "active",
-    "use_count": 2,
-    "view_count": 2
+    "use_count": 5,
+    "view_count": 5
   },
   "openclaw-to-hermes-migration": {
     "archived_at": null,
@@ -63,6 +63,19 @@
     "state": "active",
     "use_count": 24,
     "view_count": 24
+  },
+  "static-site-deployment": {
+    "archived_at": null,
+    "created_at": "2026-05-27T14:51:05.710348+00:00",
+    "created_by": "agent",
+    "last_patched_at": "2026-05-27T16:49:47.755798+00:00",
+    "last_used_at": "2026-05-27T16:48:40.783709+00:00",
+    "last_viewed_at": "2026-05-27T16:48:40.779286+00:00",
+    "patch_count": 15,
+    "pinned": false,
+    "state": "active",
+    "use_count": 5,
+    "view_count": 5
   },
   "tencent-docs": {
     "archived_at": null,
