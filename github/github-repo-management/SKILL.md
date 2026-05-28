@@ -112,6 +112,32 @@ ssh user@server "git clone -b <branch> --depth 1 git@github.com:owner/repo.git /
 
 **Pitfall:** If `git clone` on the server fails with "Host key verification failed", run `ssh-keyscan github.com >> ~/.ssh/known_hosts` first. If it fails with "Permission denied", the server lacks a GitHub-authorized SSH key — fall back to Approach A (local clone + rsync).
 
+### Server Git Status Misleading: "All Files Deleted"
+
+**Symptom:** After deploying via rsync/scp (not `git clone`), running `git diff --stat origin/master` on the server shows every file as deleted, even though the site works perfectly.
+
+**Root Cause:** Files were copied outside of Git (rsync, scp, manual upload), so Git's index is empty. Git reports them as "deleted from index" when comparing to the remote branch.
+
+**Verification — compare actual content, not git status:**
+```bash
+# On the server
+cd /var/www/target
+
+# Check if content actually differs
+diff <(git show origin/master:index.html) index.html
+
+# Or MD5 for quick comparison
+git show origin/master:assets/logo.png | md5sum
+md5sum assets/logo.png
+```
+
+**Key Lesson:** `git diff --stat` showing deletions does NOT mean files are missing. It means Git doesn't track them. Always verify actual content before syncing.
+
+**When server code is newer than GitHub:**
+1. Use `diff <(git show origin/master:FILE) FILE` to see real differences
+2. If server is newer, commit and push to update the remote
+3. If remote is newer, re-deploy using Approach A
+
 ### rsync Timeouts with Large Files
 
 When rsyncing large repos or assets over slow/intercontinental links, the connection may timeout mid-transfer.

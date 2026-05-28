@@ -1,42 +1,68 @@
 {
+  "agent-roles": {
+    "archived_at": null,
+    "created_at": "2026-05-28T09:45:39.433535+00:00",
+    "created_by": null,
+    "last_patched_at": null,
+    "last_used_at": "2026-05-28T09:49:48.755085+00:00",
+    "last_viewed_at": "2026-05-28T09:49:48.750058+00:00",
+    "patch_count": 0,
+    "pinned": false,
+    "state": "active",
+    "use_count": 23,
+    "view_count": 23
+  },
   "ai-news-daily": {
     "archived_at": null,
     "created_at": "2026-05-26T15:55:21.947624+00:00",
     "created_by": null,
     "last_patched_at": null,
-    "last_used_at": "2026-05-26T16:41:16.896392+00:00",
-    "last_viewed_at": "2026-05-26T16:41:16.892467+00:00",
+    "last_used_at": "2026-05-28T09:34:31.378165+00:00",
+    "last_viewed_at": "2026-05-28T09:34:31.374590+00:00",
     "patch_count": 0,
     "pinned": false,
     "state": "active",
-    "use_count": 3,
-    "view_count": 3
+    "use_count": 4,
+    "view_count": 4
   },
   "content-platforms": {
     "archived_at": null,
     "created_at": "2026-05-26T16:41:37.758733+00:00",
     "created_by": "agent",
-    "last_patched_at": "2026-05-27T16:51:37.444053+00:00",
-    "last_used_at": "2026-05-27T16:51:15.263626+00:00",
-    "last_viewed_at": "2026-05-27T16:51:15.259891+00:00",
-    "patch_count": 34,
+    "last_patched_at": "2026-05-28T14:08:02.573358+00:00",
+    "last_used_at": "2026-05-28T14:07:36.644926+00:00",
+    "last_viewed_at": "2026-05-28T14:07:36.640278+00:00",
+    "patch_count": 66,
     "pinned": false,
     "state": "active",
-    "use_count": 29,
-    "view_count": 29
+    "use_count": 55,
+    "view_count": 55
   },
   "daily-report": {
     "archived_at": null,
     "created_at": "2026-05-26T15:53:26.966106+00:00",
     "created_by": null,
     "last_patched_at": null,
-    "last_used_at": "2026-05-27T05:36:59.912558+00:00",
-    "last_viewed_at": "2026-05-27T05:36:59.903644+00:00",
+    "last_used_at": "2026-05-28T09:34:28.204246+00:00",
+    "last_viewed_at": "2026-05-28T09:34:28.200245+00:00",
     "patch_count": 0,
     "pinned": false,
     "state": "active",
-    "use_count": 3,
-    "view_count": 3
+    "use_count": 4,
+    "view_count": 4
+  },
+  "find-skills": {
+    "archived_at": null,
+    "created_at": "2026-05-28T10:59:26.262264+00:00",
+    "created_by": null,
+    "last_patched_at": null,
+    "last_used_at": "2026-05-28T10:59:26.265839+00:00",
+    "last_viewed_at": "2026-05-28T10:59:26.262286+00:00",
+    "patch_count": 0,
+    "pinned": false,
+    "state": "active",
+    "use_count": 1,
+    "view_count": 1
   },
   "github": {
     "archived_at": null,
@@ -68,14 +94,14 @@
     "archived_at": null,
     "created_at": "2026-05-27T14:51:05.710348+00:00",
     "created_by": "agent",
-    "last_patched_at": "2026-05-27T16:49:47.755798+00:00",
-    "last_used_at": "2026-05-27T16:48:40.783709+00:00",
-    "last_viewed_at": "2026-05-27T16:48:40.779286+00:00",
-    "patch_count": 15,
+    "last_patched_at": "2026-05-28T00:47:04.769350+00:00",
+    "last_used_at": "2026-05-28T00:46:30.999615+00:00",
+    "last_viewed_at": "2026-05-28T00:46:30.996067+00:00",
+    "patch_count": 19,
     "pinned": false,
     "state": "active",
-    "use_count": 5,
-    "view_count": 5
+    "use_count": 12,
+    "view_count": 12
   },
   "tencent-docs": {
     "archived_at": null,

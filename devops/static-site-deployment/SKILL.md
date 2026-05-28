@@ -81,6 +81,13 @@ grep -A5 "Host.*server\|HostName.*server_ip" ~/.ssh/config
 ssh -i ~/.ssh/the_key -o StrictHostKeyChecking=no user@server "echo 'SSH OK'"
 ```
 
+**If SSH key is not in GitHub account's SSH Keys:** `git clone git@github.com` will fail with "Host key verification failed". Use HTTPS with token instead, or ask the user to add the public key to GitHub.
+
+**Key location pattern for this user:**
+- Remote server SSH key: `~/.ssh/jorge_server` → connects to `ai-worker@82.156.225.39`
+- This key is for the **remote server**, NOT for GitHub
+- GitHub operations should use HTTPS with PAT, or a separate GitHub-deploy key
+
 ### 1. Prepare Local Source
 
 Clone the repository locally (not on the remote server):
@@ -352,3 +359,83 @@ After deployment:
 | `git fetch` hangs but `curl github.com` works | Git smart HTTP protocol timeout | Use local clone + incremental sync |
 | Subpath returns 404 | `alias` directive missing trailing slash | Ensure `alias /path/dir/;` has trailing slash |
 | Subdomain shows wrong content | `root` path points to parent instead of subdirectory | Set `root /var/www/example.com/aivideo;` not `/var/www/example.com;` |
+
+### Git Status Misleading: "All files deleted"
+
+**Symptom:** `git diff --stat origin/master` shows every file as deleted (e.g., `aivideo/index.html | 180 -------`), even though the files exist on disk and the site works.
+
+**Root Cause:** The working directory was populated by non-git means (scp, rsync, manual upload), so Git sees them as untracked local files. When comparing against the remote branch, Git reports them as "deleted from the index" — but the actual file **contents may match perfectly**.
+
+**Verification — don't trust `git diff` alone:**
+
+```bash
+# Compare actual content, not git status
+diff <(git show origin/master:chatgpt/index.html) chatgpt/index.html
+
+# Or use MD5 for binary files
+git show origin/master:assets/logo.png | md5sum
+md5sum assets/logo.png
+```
+
+**Key Lesson:** `git diff --stat` showing deletions does NOT mean the server is missing files. It means Git doesn't know about them. Always verify by comparing actual file contents before deciding which direction to sync.
+
+**When server has newer code than GitHub:**
+1. Use `diff <(git show origin/master:FILE) FILE` to see real differences
+2. If server is newer, commit locally and push to update the remote
+3. If remote is newer, use the incremental sync approach to pull changes
+
+**When GitHub has newer code and user wants to overwrite server:**
+1. First verify with `diff` that remote really IS different
+2. Then use `git reset --hard origin/master` + `git clean -fd` to force match
+3. Reload Nginx and verify all endpoints respond with 200
+
+### Detecting Which Side Is Newer
+
+```bash
+cd /var/www/example.com
+
+# Check remote commit history
+git log --oneline origin/master -5
+
+# Check if local has uncommitted changes
+git status --short
+
+# Compare specific files
+diff <(git show origin/master:aivideo/index.html) aivideo/index.html
+
+# If diff shows additions in local (lines prefixed with >), local is newer
+# If diff shows additions in remote (lines prefixed with <), remote is newer
+```
+
+### Forcing Server to Match Remote (Discard Local Changes)
+
+When the user explicitly asks to **pull latest GitHub code and overwrite server** (discard all local modifications):
+
+```bash
+cd /var/www/example.com
+
+# Reset working tree to match origin/master exactly
+git reset --hard origin/master
+
+# Remove any untracked files/directories not in the repo
+git clean -fd
+
+# Verify clean state
+git status
+# Expected: "nothing to commit, working tree clean"
+```
+
+**⚠️ Warning:** This permanently destroys any local changes. Only use when the user explicitly requests a fresh pull from GitHub.
+
+**After reset, reload Nginx:**
+```bash
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+**Verification:**
+```bash
+# Check all pages respond
+curl -sL -o /dev/null -w '%{http_code}' -H 'Host: example.com' http://127.0.0.1/aivideo/
+curl -sL -o /dev/null -w '%{http_code}' -H 'Host: example.com' http://127.0.0.1/chatgpt/
+curl -sL -o /dev/null -w '%{http_code}' -H 'Host: example.com' http://127.0.0.1/
+```
