@@ -29,14 +29,14 @@
     "archived_at": null,
     "created_at": "2026-05-26T16:41:37.758733+00:00",
     "created_by": "agent",
-    "last_patched_at": "2026-05-30T07:34:46.997747+00:00",
-    "last_used_at": "2026-05-30T08:05:57.757271+00:00",
-    "last_viewed_at": "2026-05-30T08:05:57.752861+00:00",
-    "patch_count": 72,
+    "last_patched_at": "2026-05-31T13:05:45.923079+00:00",
+    "last_used_at": "2026-05-31T13:04:16.762442+00:00",
+    "last_viewed_at": "2026-05-31T13:04:16.758897+00:00",
+    "patch_count": 80,
     "pinned": false,
     "state": "active",
-    "use_count": 58,
-    "view_count": 58
+    "use_count": 61,
+    "view_count": 61
   },
   "daily-report": {
     "archived_at": null,
@@ -89,6 +89,19 @@
     "state": "active",
     "use_count": 24,
     "view_count": 24
+  },
+  "productivity/content-platforms": {
+    "archived_at": null,
+    "created_at": "2026-05-31T12:45:05.634432+00:00",
+    "created_by": null,
+    "last_patched_at": null,
+    "last_used_at": "2026-05-31T13:03:33.448123+00:00",
+    "last_viewed_at": "2026-05-31T13:03:33.444209+00:00",
+    "patch_count": 0,
+    "pinned": false,
+    "state": "active",
+    "use_count": 2,
+    "view_count": 2
   },
   "static-site-deployment": {
     "archived_at": null,

@@ -20,8 +20,8 @@ description: "权权内容平台矩阵 - 微信公众号、小红书、头条号
 
 | 平台 | 脚本 | 定时 | 状态 |
 |------|------|------|------|
-| 微信公众号「围炉家常话」 | `wechat-article-daily.py` | 每天 07:00 | ▶️ 运行 |
-| 小红书周末出逃计划 | `xhs-escape-weekend.py` | 每天 10:00 | ▶️ 运行（新增） |
+| 微信公众号「围炉家常话」 | `wechat-article-daily.py` | 每天 07:00 | ▶️ 运行（**MD文件推飞书，不发邮件**） |
+| 小红书周末出逃计划 | `xhs-escape-weekend.py` | 每天 10:00 | ▶️ 运行 |
 | **全平台内容生成** | **`unified-content-daily.py`** | **每天 17:00** | ▶️ **运行中** |
 | 头条号文章 | `toutiao-article-daily.py` | 20:30 | ▶️ 运行 |
 | ~~小红书旅游攻略~~ | ~~xhs-travel-daily.py~~ | ~~每天 21:30~~ | ⏸️ **已停用** |
@@ -46,9 +46,11 @@ cronjob (定时)
 ### 参考资料
 
 - `references/wechat-article-daily.md` — 公众号文章生成器完整数据结构说明（含TOPICS_POOL字段、模板变量、检查清单实现细节）
+- `references/wechat-md-format.md` — 公众号文章 MD 格式规范（**重要**：公众号不再发邮件，改为生成 MD 文件推送飞书，格式要求见此文件）
 - `references/toutiao-article-daily.md` — 头条号文章生成器参考实现
 - `references/xhs-travel-guide-sample.md` — 小红书旅游攻略参考实现
 - `references/dedup-cronjobs.md` — 排查重复内容推送任务：如何发现和清理重复的cronjob/crontab任务
+- `references/cron-diagnostics.md` — Cron 任务状态误报（no_agent script error）的诊断方法
 - `references/douyin-hotsearch-to-article-sop.md` — **抖音热搜变爆款文章SOP：从热搜采集到多平台分发的完整操作流程**
 - `references/viral-title-templates.md` — 爆款标题模板库（5种类型×3个模板，含热词类型→标题类型映射和代码移植建议）
 - `references/unified-content-daily.md` — 全平台内容生成脚本 `unified-content-daily.py` 参考实现（含 Image2 生图提示词逻辑、图文素材表结构、邮件HTML模板）
@@ -56,6 +58,7 @@ cronjob (定时)
 ## 🔧 用户内容偏好（已固化）
 ## 🔧 用户内容偏好（已固化）
 
+- **公众号MD文件推送飞书**：对话框复制格式会丢失，公众号文章一律生成 `.md` 文件通过 `MEDIA:` 推送到飞书，用户直接下载附件再复制到公众号后台
 - **公众号文章按话题类型设定目标字数**（2026-05-28确认）：
   | 话题类型 | 目标字数 | 说明 |
   |---------|---------|------|
@@ -72,7 +75,7 @@ cronjob (定时)
 - **推送时间差异化** — 不同平台/内容线安排在不同时间段：公众号07:00、全平台内容17:00、小红书旅游攻略21:30，间隔至少30分钟
 - **每日一次** — 每条内容线每天仅推送一次，不重复
 - **图文内容必须附带 Image2 生图提示词** — 说明几张图、分别放哪里、提示词内容
-- **品牌名一致性** — 所有脚本发件人统一为「权权的HERMES」，旧品牌「权权养的虾」已废弃
+- **公众号MD文件颜色格式**：统一用 `<span style="color: rgba(255, 69, 0, 1)">数字/金句</span>`，用户自行二次转为公众号。详见 `references/wechat-md-format.md`
 
 ## 🎨 HTML邮件模板规范（公众号版·生产工具风格）
 
