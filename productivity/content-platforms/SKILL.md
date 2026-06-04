@@ -50,6 +50,7 @@ cronjob (定时)
 - `references/toutiao-article-daily.md` — 头条号文章生成器参考实现
 - `references/xhs-travel-guide-sample.md` — 小红书旅游攻略参考实现
 - `references/dedup-cronjobs.md` — 排查重复内容推送任务：如何发现和清理重复的cronjob/crontab任务
+- `references/dedup-visited-destinations.md` — 小红书旅游脚本景点去重机制：_pick_unvisited()实现、追踪文件、循环覆盖逻辑
 - `references/cron-diagnostics.md` — Cron 任务状态误报（no_agent script error）的诊断方法
 - `references/douyin-hotsearch-to-article-sop.md` — **抖音热搜变爆款文章SOP：从热搜采集到多平台分发的完整操作流程**
 - `references/viral-title-templates.md` — 爆款标题模板库（5种类型×3个模板，含热词类型→标题类型映射和代码移植建议）
