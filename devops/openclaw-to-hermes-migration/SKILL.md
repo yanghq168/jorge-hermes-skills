@@ -220,6 +220,14 @@ If the user provides a `github_pat_*` token and Git push fails with "Password au
 
 1. **Assuming full compatibility.** The SKILL.md format is compatible, but anything calling `openclaw` CLI or APIs needs rewriting.
 
+1a. **Comment-only crontab entries (silent skip).** A previous migration may have left `# 23:00 - some-job` comment lines in `crontab -l` but failed to install the actual schedule line below them. The job will appear documented in crontab but will never fire. When investigating a "job that never runs", always diff the comments in `crontab -l` against the executable lines: `crontab -l | grep -v '^#' | grep -v '^$'`. Any comment that has no matching schedule line is a missed install. Recipe to repair:
+   ```bash
+   crontab -l > /tmp/cron.bak
+   # Insert the actual schedule line below the matching comment, then:
+   crontab /tmp/cron.bak
+   ```
+   Also confirm by reading the corresponding log file's mtime — if the log is older than the comment, the line was never installed.
+
 2. **Forgetting to update paths.** OpenClaw workspaces often hardcode `/root/.openclaw/` — these break on Hermes which uses `~/.hermes/`.
 
 3. **Trying to load Agent roles as skills.** The 177 agent `.md` files are role definitions, not executable skills. They go in `references/`, not as top-level skills.
@@ -239,6 +247,7 @@ If the user provides a `github_pat_*` token and Git push fails with "Password au
 ## Verification Checklist
 
 - [ ] All `openclaw` / `clawhub` / `mcporter` references removed or updated
+- [ ] **Every comment in `crontab -l` has a matching executable schedule line below it** (catch partial-installs: `crontab -l | grep -v '^#' | grep -v '^$'`)
 - [ ] Cron jobs converted to `hermes cron` or `cronjob` tool format
 - [ ] MCP configurations converted to `hermes mcp` format
 - [ ] Agent roles archived in `references/`, not installed as skills
