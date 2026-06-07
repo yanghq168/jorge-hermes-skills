@@ -24,7 +24,7 @@ description: "权权内容平台矩阵 - 微信公众号、小红书、头条号
 | 小红书周末出逃计划 | `xhs-escape-weekend.py` | 每天 10:00 | ▶️ 运行 |
 | **全平台内容生成** | **`unified-content-daily.py`** | **每天 17:00** | ▶️ **运行中** |
 | 头条号文章 | `toutiao-article-daily.py` | 20:30 | ▶️ 运行 |
-| ~~小红书旅游攻略~~ | ~~xhs-travel-daily.py~~ | ~~每天 21:30~~ | ⏸️ **已停用** |
+| **小红书旅游攻略** | `xhs-travel-daily.py` | **每天23:00** | ▶️ **运行中**（用户长期需要） |
 
 ## 🏗️ 通用架构
 
@@ -49,6 +49,7 @@ cronjob (定时)
 - `references/wechat-md-format.md` — 公众号文章 MD 格式规范（**重要**：公众号不再发邮件，改为生成 MD 文件推送飞书，格式要求见此文件）
 - `references/toutiao-article-daily.md` — 头条号文章生成器参考实现
 - `references/xhs-travel-guide-sample.md` — 小红书旅游攻略参考实现
+- `references/xhs-travel-script-identifier.md` — **两个旅游脚本辨析**：`xhs-travel-daily.py`（主，23:00）vs `xiaohongshu-travel-daily.py`（旧，已停用）+ shell转义踩坑
 - `references/dedup-cronjobs.md` — 排查重复内容推送任务：如何发现和清理重复的cronjob/crontab任务
 - `references/dedup-visited-destinations.md` — 小红书旅游脚本景点去重机制：_pick_unvisited()实现、追踪文件、循环覆盖逻辑
 - `references/cron-diagnostics.md` — Cron 任务状态误报（no_agent script error）的诊断方法
@@ -73,7 +74,7 @@ cronjob (定时)
 - **人设鲜明** — 围炉家常话是"人间清醒观察家"（朋友式讲故事），不是主编/老师
 - **投稿来源** — 经常有网友投稿（@xxx 格式），故事要有具体时间、地点、数字、对话
 - **用词中性化** — 避免"拉黑""逼""滚"等强硬/极端情绪词汇，改用"屏蔽""让""走"等中性表达
-- **推送时间差异化** — 不同平台/内容线安排在不同时间段：公众号07:00、全平台内容17:00、小红书旅游攻略21:30，间隔至少30分钟
+- **推送时间差异化** — 不同平台/内容线安排在不同时间段：公众号07:00、全平台内容17:00、小红书旅游攻略**23:00**，间隔至少30分钟
 - **每日一次** — 每条内容线每天仅推送一次，不重复
 - **图文内容必须附带 Image2 生图提示词** — 说明几张图、分别放哪里、提示词内容
 - **公众号MD文件颜色格式**：统一用 `<span style="color: rgba(255, 69, 0, 1)">数字/金句</span>`，用户自行二次转为公众号。详见 `references/wechat-md-format.md`
@@ -276,7 +277,7 @@ for item in items:
     if clean: print(clean[:120])
 ```
 
-**推送时间差异化（已固化）**：公众号07:00、全平台内容17:00、小红书21:30，间隔至少30分钟。
+**推送时间差异化（已固化）**：公众号07:00、全平台内容17:00、小红书旅游攻略**23:00**，间隔至少30分钟。
 
 **每日一次（已固化）**：每条内容线每天仅推送一次，不重复。发现重复任务立即删除。
 
@@ -307,6 +308,11 @@ for item in items:
 - **强制拉取覆盖服务器**：当用户明确要求"拉取最新代码覆盖服务器"时，使用 `git reset --hard origin/master` + `git clean -fd` 强制同步，然后 `sudo nginx -t && sudo systemctl reload nginx` 重载服务，最后用 `curl` 验证所有端点返回200
 
 ## 📝 更新日志
+
+### v1.5.2（2026-06-07）
+- **修正小红书旅游攻略脚本状态**：`xhs-travel-daily.py`实际状态为 ▶️ 运行中（每天23:00），不是已停用。删除了 v1.5.0/v1.5.1 中所有「已停用」和「21:30」错误描述
+- 新增 `references/xhs-travel-script-identifier.md`辨析两个名字相近脚本（`xhs-travel-daily.py` vs `xiaohongshu-travel-daily.py`）
+-文档化 shell 转义陷阱：`"${script}"2>&1` 在 Python `terminal()` 中被解释为带后缀文件名，必须用空格分隔 token
 
 ### v1.3.0
 - 新增抖音热搜变爆款文章SOP：`references/douyin-hotsearch-to-article-sop.md`
@@ -509,7 +515,7 @@ hashtags = [
 | 全平台内容生成 | `unified-content-daily.py` | 17:00 | B方案·选题+爆款模式（搜索真实内容） | ✅ 运行中 |
 | 头条号文章 | `toutiao-article-daily.py` | 20:30 | 情感/家庭/婚姻老模板 | ✅ 已恢复 |
 | 小红书周末出逃计划 | `xhs-escape-weekend.py` | 10:00 | 2天1夜短途出行（14个目的地） | ✅ 运行（新增） |
-| ~~小红书旅游攻略~~ | ~~xhs-travel-daily.py~~ | ~~21:30~~ | ~~老任务·旅游攻略~~ | ❌ **已停用** |
+| **小红书旅游攻略** | `xhs-travel-daily.py` | **每天23:00** | ▶️ **运行中**（用户长期需要） |
 | ~~抖音热搜选题采集~~ | ~~douyin-hotsearch-daily.py~~ | ~~17:00~~ | ~~热搜→选题日报~~ | ❌ 已整合到 unified |
 
 **四条线的分工：**
@@ -520,7 +526,7 @@ hashtags = [
 - **17:00 全平台管线（B方案）**：生成公众号长文（爆款模式）+ 头条号 + 小红书图文的当日内容，用真实爆款分析驱动，发送邮件
 - **07:00 公众号情感长文（老任务）**：`wechat-article-daily.py` 独立脚本，双故事论证法，专门走情感/家庭/婚姻话题，**目前无 cron 任务，需单独创建**
 
-> **job_id 参考**：头条号老任务 `406529dd5f2e`（已恢复，20:30），小红书旅游攻略 `efc670929cf1`（保留，21:30），全平台管线 `7226bc84df96`（17:00）
+> **job_id 参考**：头条号老任务 `406529dd5f2e`（已恢复，20:30），小红书旅游攻略 `efc670929cf1`（**23:00 运行中**），全平台管线 `7226bc84df96`（17:00）
 
 ### 用户偏好（2026-05-29 确认）
 - **B方案用中性词**：爆款模式中敏感词需中性化（拉黑→屏蔽）

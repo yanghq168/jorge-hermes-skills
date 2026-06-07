@@ -59,7 +59,7 @@ dest = _pick_unvisited(DESTINATIONS)
 
 | 脚本 | 目的地数 | 追踪文件 |
 |------|---------|---------|
-| `xhs-travel-daily.py`（21:30，长期旅游攻略） | 19 | `.xhs_travel_visited.json` |
+| `xhs-travel-daily.py`（**23:00**，长期旅游攻略） |19 | `.xhs_travel_visited.json` |
 | `xhs-escape-weekend.py`（10:00，周末出逃） | 13 | `.xhs_escape_visited.json` |
 
 ## 重置逻辑
