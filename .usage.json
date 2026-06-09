@@ -30,13 +30,13 @@
     "created_at": "2026-05-26T16:41:37.758733+00:00",
     "created_by": "agent",
     "last_patched_at": "2026-06-07T15:05:16.415057+00:00",
-    "last_used_at": "2026-06-08T02:00:52.231448+00:00",
-    "last_viewed_at": "2026-06-07T15:05:20.769764+00:00",
+    "last_used_at": "2026-06-09T16:06:21.932457+00:00",
+    "last_viewed_at": "2026-06-09T16:06:21.924595+00:00",
     "patch_count": 90,
     "pinned": false,
     "state": "active",
-    "use_count": 71,
-    "view_count": 69
+    "use_count": 73,
+    "view_count": 70
   },
   "daily-report": {
     "archived_at": null,
@@ -82,13 +82,13 @@
     "created_at": "2026-05-26T14:36:46.847402+00:00",
     "created_by": "agent",
     "last_patched_at": "2026-06-05T13:33:33.788886+00:00",
-    "last_used_at": "2026-06-05T13:33:09.827183+00:00",
-    "last_viewed_at": "2026-06-05T13:33:09.823405+00:00",
+    "last_used_at": "2026-06-09T16:06:21.936619+00:00",
+    "last_viewed_at": "2026-06-09T16:06:21.928562+00:00",
     "patch_count": 33,
     "pinned": false,
     "state": "active",
-    "use_count": 27,
-    "view_count": 27
+    "use_count": 28,
+    "view_count": 28
   },
   "productivity/content-platforms": {
     "archived_at": null,
@@ -108,13 +108,13 @@
     "created_at": "2026-05-27T14:51:05.710348+00:00",
     "created_by": "agent",
     "last_patched_at": "2026-05-28T00:47:04.769350+00:00",
-    "last_used_at": "2026-06-02T15:48:51.277709+00:00",
-    "last_viewed_at": "2026-06-02T15:48:51.272964+00:00",
+    "last_used_at": "2026-06-09T16:06:21.918378+00:00",
+    "last_viewed_at": "2026-06-09T16:06:21.911507+00:00",
     "patch_count": 19,
     "pinned": false,
     "state": "active",
-    "use_count": 14,
-    "view_count": 14
+    "use_count": 15,
+    "view_count": 15
   },
   "tencent-docs": {
     "archived_at": null,

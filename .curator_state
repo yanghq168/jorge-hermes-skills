@@ -1,9 +1,9 @@
 {
-  "last_report_path": "/home/ubuntu/.hermes/logs/curator/20260602-154843",
-  "last_run_at": "2026-06-02T15:48:43.272981+00:00",
-  "last_run_duration_seconds": 43.852125,
-  "last_run_summary": "auto: no changes; llm: No consolidation possible among these 3 candidates — all three are already class-level umbrellas with their own `references/`, `templates/`, and `scripts/` subdirectories. None have narrow siblings competing for the same namespace.\n\n**Clust…",
+  "last_report_path": "/home/ubuntu/.hermes/logs/curator/20260609-160550",
+  "last_run_at": "2026-06-09T16:05:50.964110+00:00",
+  "last_run_duration_seconds": 98.257747,
+  "last_run_summary": "auto: no changes; llm: Confirmed. Each skill already has the right shape:\n\n| Skill | Class-level? | references/ | templates/ | Scripts/ | Activity |\n|-------|-------------|-------------|------------|----------|----------|\n| content-platforms | ✅ Yes (multi-platfo…",
   "last_run_summary_shown_at": null,
   "paused": false,
-  "run_count": 1
+  "run_count": 2
 }
