@@ -29,13 +29,13 @@
     "archived_at": null,
     "created_at": "2026-05-26T16:41:37.758733+00:00",
     "created_by": "agent",
-    "last_patched_at": "2026-06-07T15:05:16.415057+00:00",
-    "last_used_at": "2026-06-10T02:00:04.191260+00:00",
+    "last_patched_at": "2026-06-11T02:06:03.206780+00:00",
+    "last_used_at": "2026-06-11T02:00:25.459332+00:00",
     "last_viewed_at": "2026-06-09T16:06:21.924595+00:00",
-    "patch_count": 90,
+    "patch_count": 91,
     "pinned": false,
     "state": "active",
-    "use_count": 74,
+    "use_count": 75,
     "view_count": 70
   },
   "daily-report": {

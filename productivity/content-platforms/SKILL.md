@@ -295,6 +295,10 @@ for item in items:
 
 - **f-string反斜杠**：Python 3.12禁止在f-string内使用反斜杠，先拼接中间变量再塞入f-string
 - **邮件发送失败**：先检查 `python3 ~/.hermes/cron/scripts/<script>.py` 是否能单独运行成功；若端口通但 AUTH 失败（535 Login fail），可能是腾讯云 IP 被 QQ 邮箱拒绝，此时内容改由 Lark `deliver=origin` 直推，不再依赖邮件
+- **cron job 内调用 hermes send 发到同一目标会被拦截**：当 `deliver=origin` 把 cron 输出推到 Lark DM/话题时，cron job 里**不要再调用 `hermes send --to feishu:<当前chat_id>`**——系统会返回：
+  - bare chat_id（`feishu:oc_xxx`）→ `Skipped send_message to ... This cron job will already auto-deliver its final response to that same target. Put the intended user-facing content in your final response instead`
+  - 带话题（`feishu:oc_xxx:omt_xxx` 或 `feishu:oc_xxx / topic omt_xxx`）→ `[99992402] field validation failed`
+  - 正确做法：**直接把要推送的内容写在 final response 里**，系统自动派发到 cron 的 `deliver=origin` 目标
 - **话题标签遗漏**：小红书内容必须包含 `#话题`，检查是否有 hashtags 相关变量
 - **敏感词遗漏**：所有内容平台脚本必须通过 `replace()` 或模板变量实现敏感词替换，不能只依赖提示词层面的"注意用词"。必须替换的词汇包括但不限于：
   | 原词 | 替换为 | 说明 |
