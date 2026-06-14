@@ -30,12 +30,12 @@
     "created_at": "2026-05-26T16:41:37.758733+00:00",
     "created_by": "agent",
     "last_patched_at": "2026-06-11T02:06:03.206780+00:00",
-    "last_used_at": "2026-06-13T02:00:57.269933+00:00",
+    "last_used_at": "2026-06-14T02:00:31.444558+00:00",
     "last_viewed_at": "2026-06-09T16:06:21.924595+00:00",
     "patch_count": 91,
     "pinned": false,
     "state": "active",
-    "use_count": 77,
+    "use_count": 78,
     "view_count": 70
   },
   "daily-report": {
@@ -102,6 +102,19 @@
     "state": "active",
     "use_count": 2,
     "view_count": 2
+  },
+  "remote-linux-server-setup": {
+    "archived_at": null,
+    "created_at": "2026-06-14T11:09:09.122443+00:00",
+    "created_by": "agent",
+    "last_patched_at": "2026-06-14T11:09:52.780624+00:00",
+    "last_used_at": "2026-06-14T11:10:04.956549+00:00",
+    "last_viewed_at": "2026-06-14T11:10:04.952949+00:00",
+    "patch_count": 3,
+    "pinned": false,
+    "state": "active",
+    "use_count": 1,
+    "view_count": 1
   },
   "static-site-deployment": {
     "archived_at": null,
