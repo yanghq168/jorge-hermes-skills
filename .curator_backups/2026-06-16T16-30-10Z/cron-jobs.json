@@ -1,0 +1,428 @@
+{
+  "jobs": [
+    {
+      "id": "efc670929cf1",
+      "name": "\u5c0f\u7ea2\u4e66\u65c5\u6e38\u653b\u7565",
+      "prompt": "\u6bcf\u5929\u665a\u4e0a11\u70b9\u8fd0\u884c ~/.hermes/cron/scripts/xhs-travel-daily.py \u751f\u6210\u5f53\u65e5\u5c0f\u7ea2\u4e66\u65c5\u6e38\u653b\u7565\uff0c\u968f\u673a\u56fd\u5185\u666f\u70b9\uff0c\u53d1\u9001HTML\u90ae\u4ef6\u5230 569545015@qq.com",
+      "skills": [],
+      "skill": null,
+      "model": null,
+      "provider": null,
+      "base_url": null,
+      "script": null,
+      "no_agent": false,
+      "context_from": null,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 23 * * *",
+        "display": "0 23 * * *"
+      },
+      "schedule_display": "0 23 * * *",
+      "repeat": {
+        "times": null,
+        "completed": 22
+      },
+      "enabled": true,
+      "state": "scheduled",
+      "paused_at": null,
+      "paused_reason": null,
+      "created_at": "2026-05-27T00:40:27.868154+08:00",
+      "next_run_at": "2026-06-17T23:00:00+08:00",
+      "last_run_at": "2026-06-16T23:01:09.820014+08:00",
+      "last_status": "ok",
+      "last_error": null,
+      "last_delivery_error": null,
+      "deliver": "origin",
+      "origin": {
+        "platform": "feishu",
+        "chat_id": "oc_39c71fb71c2db9be002545966567498f",
+        "chat_name": "oc_39c71fb71c2db9be002545966567498f",
+        "thread_id": null
+      },
+      "enabled_toolsets": null,
+      "workdir": null
+    },
+    {
+      "id": "406529dd5f2e",
+      "name": "\u5934\u6761\u53f7\u6587\u7ae0",
+      "prompt": "\u6bcf\u665a8\u70b9\u534a\u8fd0\u884c ~/.hermes/cron/scripts/toutiao-article-daily.py \u751f\u6210\u5f53\u65e5\u5934\u6761\u6587\u7ae0\uff0c\u53d1\u9001HTML\u90ae\u4ef6\u5230 569545015@qq.com\u3002\n\n\u53d1\u4ef6\u4eba\uff1a\u56f4\u7089\u5bb6\u5e38\u8bdd\uff08\u5934\u6761\uff09\n\u9009\u9898\u65b9\u5411\uff1a\u517b\u8001\u3001\u9057\u4ea7\u3001\u8d61\u517b\u3001\u4eb2\u621a\u6069\u6028\uff08\u5934\u6761\u4e2d\u8001\u5e74\u7537\u6027\u7528\u6237\u6700\u7231\uff09\n\u957f\u6587\u5403\u6d41\u91cf\uff0c\u6545\u4e8b\u8981\u5b8c\u6574\uff0c\u89c2\u70b9\u8981\u7280\u5229\u3002",
+      "skills": [],
+      "skill": null,
+      "model": null,
+      "provider": null,
+      "base_url": null,
+      "script": null,
+      "no_agent": false,
+      "context_from": null,
+      "schedule": {
+        "kind": "cron",
+        "expr": "30 20 * * *",
+        "display": "30 20 * * *"
+      },
+      "schedule_display": "30 20 * * *",
+      "repeat": {
+        "times": null,
+        "completed": 20
+      },
+      "enabled": true,
+      "state": "scheduled",
+      "paused_at": null,
+      "paused_reason": null,
+      "created_at": "2026-05-27T01:21:17.367934+08:00",
+      "next_run_at": "2026-06-17T20:30:00+08:00",
+      "last_run_at": "2026-06-16T20:31:45.042242+08:00",
+      "last_status": "ok",
+      "last_error": null,
+      "last_delivery_error": "delivery error: Feishu send failed: [99992402] field validation failed",
+      "deliver": "origin",
+      "origin": {
+        "platform": "feishu",
+        "chat_id": "oc_39c71fb71c2db9be002545966567498f",
+        "chat_name": "oc_39c71fb71c2db9be002545966567498f",
+        "thread_id": "omt_19705b69670f5b81"
+      },
+      "enabled_toolsets": null,
+      "workdir": null
+    },
+    {
+      "id": "2409bfc322fb",
+      "name": "Hermes\u8bb0\u5fc6\u6570\u636e\u6bcf\u65e5\u5907\u4efd",
+      "prompt": "/home/ubuntu/.hermes/scripts/hermes-backup.sh",
+      "skills": [],
+      "skill": null,
+      "model": null,
+      "provider": null,
+      "base_url": null,
+      "script": "hermes-backup.sh",
+      "no_agent": true,
+      "context_from": null,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 2 * * *",
+        "display": "0 2 * * *"
+      },
+      "schedule_display": "0 2 * * *",
+      "repeat": {
+        "times": null,
+        "completed": 20
+      },
+      "enabled": true,
+      "state": "scheduled",
+      "paused_at": null,
+      "paused_reason": null,
+      "created_at": "2026-05-27T12:31:50.325994+08:00",
+      "next_run_at": "2026-06-17T02:00:00+08:00",
+      "last_run_at": "2026-06-16T02:00:25.444988+08:00",
+      "last_status": "ok",
+      "last_error": null,
+      "last_delivery_error": "delivery error: Feishu send failed: [99992402] field validation failed",
+      "deliver": "origin",
+      "origin": {
+        "platform": "feishu",
+        "chat_id": "oc_39c71fb71c2db9be002545966567498f",
+        "chat_name": "oc_39c71fb71c2db9be002545966567498f",
+        "thread_id": "omt_19703695ee4f9be0"
+      },
+      "enabled_toolsets": null,
+      "workdir": null
+    },
+    {
+      "id": "42fe9944998e",
+      "name": "\u6296\u97f3\u70ed\u641c\u9009\u9898\u91c7\u96c6",
+      "prompt": "\u8fd0\u884c ~/.hermes/cron/scripts/douyin-hotsearch-daily.py \u6293\u53d6\u6296\u97f3\u4eca\u65e5\u70ed\u641c\u699c\uff0c\u6309\u4e09\u7c7b\u5206\u7c7b\u6574\u7406\u5e76\u8f93\u51fa\u62a5\u544a\u5230\u5f53\u524d\u5bf9\u8bdd",
+      "skills": [],
+      "skill": null,
+      "model": null,
+      "provider": null,
+      "base_url": null,
+      "script": null,
+      "no_agent": false,
+      "context_from": null,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 17 * * *",
+        "display": "0 17 * * *"
+      },
+      "schedule_display": "0 17 * * *",
+      "repeat": {
+        "times": null,
+        "completed": 1
+      },
+      "enabled": false,
+      "state": "paused",
+      "paused_at": "2026-05-28T17:57:26.184716+08:00",
+      "paused_reason": null,
+      "created_at": "2026-05-28T17:27:02.730984+08:00",
+      "next_run_at": "2026-05-29T17:00:00+08:00",
+      "last_run_at": "2026-05-28T17:33:27.070632+08:00",
+      "last_status": "ok",
+      "last_error": null,
+      "last_delivery_error": null,
+      "deliver": "origin",
+      "origin": {
+        "platform": "feishu",
+        "chat_id": "oc_39c71fb71c2db9be002545966567498f",
+        "chat_name": "oc_39c71fb71c2db9be002545966567498f",
+        "thread_id": null
+      },
+      "enabled_toolsets": null,
+      "workdir": null
+    },
+    {
+      "id": "7226bc84df96",
+      "name": "\u5168\u5e73\u53f0\u5185\u5bb9\u751f\u6210\uff08\u9009\u9898+\u7206\u6b3e\uff09",
+      "prompt": "\u8fd0\u884c ~/.hermes/cron/scripts/unified-content-daily.py \u751f\u6210\u5f53\u65e5\u5168\u5e73\u53f0\u5185\u5bb9\uff1a\n- \u516c\u4f17\u53f7\u957f\u6587\uff08\u90ae\u4ef6\uff09\n- \u5934\u6761\u53f7\u6587\u7ae0\uff08\u90ae\u4ef6\uff09\n- \u5c0f\u7ea2\u4e66\u56fe\u6587\uff08\u90ae\u4ef6\uff09\n- \u6296\u97f3\u53e3\u64ad\u6587\u6848\uff08\u76f4\u63a5\u8f93\u51fa\u5230\u5bf9\u8bdd\uff09\n\n\u6bcf\u6761\u5185\u5bb9\u5e26 #\u8bdd\u9898 \u6807\u7b7e\uff0c\u56fe\u6587\u9644\u5e26 Image2 \u751f\u56fe\u63d0\u793a\u8bcd\uff08\u5c01\u9762\u56fe/\u6b63\u6587\u56fe/\u7ed3\u5c3e\u56fe\u4f4d\u7f6e\u8bf4\u660e\uff09\u3002\n\n\u811a\u672c\u4f1a\u81ea\u52a8\u6293\u53d6\u6296\u97f3\u70ed\u641cTOP10\uff0c\u9009\u53d6\u751f\u6d3b\u60c5\u611f/\u804c\u573a/\u79d1\u666e\u54042\u6761\u51716\u4e2a\u9009\u9898\u8bcd\uff0c\u6bcf\u4e2a\u8bcd\u751f\u62104\u6761\u5e73\u53f0\u5185\u5bb9\uff0c\u5408\u8ba124\u6761\u5185\u5bb9\u3002\n\n\u5b8c\u6210\u540e\u5c06\u811a\u672c\u8f93\u51fa\u6574\u7406\u53d1\u9001\u7ed9\u7528\u6237\u3002",
+      "skills": [],
+      "skill": null,
+      "model": null,
+      "provider": null,
+      "base_url": null,
+      "script": null,
+      "no_agent": false,
+      "context_from": null,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 17 * * *",
+        "display": "0 17 * * *"
+      },
+      "schedule_display": "0 17 * * *",
+      "repeat": {
+        "times": null,
+        "completed": 4
+      },
+      "enabled": false,
+      "state": "paused",
+      "paused_at": "2026-06-01T17:03:27.120035+08:00",
+      "paused_reason": null,
+      "created_at": "2026-05-28T18:03:58.990904+08:00",
+      "next_run_at": "2026-06-02T17:00:00+08:00",
+      "last_run_at": "2026-06-01T17:01:00.226988+08:00",
+      "last_status": "ok",
+      "last_error": null,
+      "last_delivery_error": null,
+      "deliver": "origin",
+      "origin": {
+        "platform": "feishu",
+        "chat_id": "oc_39c71fb71c2db9be002545966567498f",
+        "chat_name": "oc_39c71fb71c2db9be002545966567498f",
+        "thread_id": null
+      },
+      "enabled_toolsets": null,
+      "workdir": null
+    },
+    {
+      "id": "7e93716df129",
+      "name": "\u5c0f\u7ea2\u4e66\u5468\u672b\u51fa\u9003\u8ba1\u5212",
+      "prompt": "python3 ~/.hermes/cron/scripts/xhs-escape-weekend.py",
+      "skills": [],
+      "skill": null,
+      "model": null,
+      "provider": null,
+      "base_url": null,
+      "script": "cron/scripts/xhs-escape-weekend.py",
+      "no_agent": true,
+      "context_from": null,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 10 * * *",
+        "display": "0 10 * * *"
+      },
+      "schedule_display": "0 10 * * *",
+      "repeat": {
+        "times": null,
+        "completed": 17
+      },
+      "enabled": true,
+      "state": "scheduled",
+      "paused_at": null,
+      "paused_reason": null,
+      "created_at": "2026-05-30T10:58:38.563097+08:00",
+      "next_run_at": "2026-06-17T10:00:00+08:00",
+      "last_run_at": "2026-06-16T10:00:31.400525+08:00",
+      "last_status": "error",
+      "last_error": "Script not found: /home/ubuntu/.hermes/scripts/cron/scripts/xhs-escape-weekend.py",
+      "last_delivery_error": null,
+      "deliver": "origin",
+      "origin": {
+        "platform": "feishu",
+        "chat_id": "oc_39c71fb71c2db9be002545966567498f",
+        "chat_name": "oc_39c71fb71c2db9be002545966567498f",
+        "thread_id": null
+      },
+      "enabled_toolsets": null,
+      "workdir": null
+    },
+    {
+      "id": "17dd48924a9f",
+      "name": "\u516c\u4f17\u53f7\u60c5\u611f\u957f\u6587",
+      "prompt": "python3 ~/.hermes/cron/scripts/wechat-article-daily.py",
+      "skills": [],
+      "skill": null,
+      "model": null,
+      "provider": null,
+      "base_url": null,
+      "script": "cron/scripts/wechat-article-daily.py",
+      "no_agent": true,
+      "context_from": null,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 7 * * *",
+        "display": "0 7 * * *"
+      },
+      "schedule_display": "0 7 * * *",
+      "repeat": {
+        "times": null,
+        "completed": 17
+      },
+      "enabled": true,
+      "state": "scheduled",
+      "paused_at": null,
+      "paused_reason": null,
+      "created_at": "2026-05-30T10:58:41.902182+08:00",
+      "next_run_at": "2026-06-17T07:00:00+08:00",
+      "last_run_at": "2026-06-16T07:00:29.354537+08:00",
+      "last_status": "error",
+      "last_error": "Script not found: /home/ubuntu/.hermes/scripts/cron/scripts/wechat-article-daily.py",
+      "last_delivery_error": null,
+      "deliver": "origin",
+      "origin": {
+        "platform": "feishu",
+        "chat_id": "oc_39c71fb71c2db9be002545966567498f",
+        "chat_name": "oc_39c71fb71c2db9be002545966567498f",
+        "thread_id": null
+      },
+      "enabled_toolsets": null,
+      "workdir": null
+    },
+    {
+      "id": "077158d603ec",
+      "name": "Skills\u5907\u4efd\u5230GitHub",
+      "prompt": "bash /home/ubuntu/.hermes/agency-backup/scripts/skill-backup.sh",
+      "skills": [],
+      "skill": null,
+      "model": null,
+      "provider": null,
+      "base_url": null,
+      "script": "cron/scripts/skill-backup.sh",
+      "no_agent": true,
+      "context_from": null,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 3 * * *",
+        "display": "0 3 * * *"
+      },
+      "schedule_display": "0 3 * * *",
+      "repeat": {
+        "times": null,
+        "completed": 17
+      },
+      "enabled": true,
+      "state": "scheduled",
+      "paused_at": null,
+      "paused_reason": null,
+      "created_at": "2026-05-30T16:04:13.051517+08:00",
+      "next_run_at": "2026-06-17T03:00:00+08:00",
+      "last_run_at": "2026-06-16T03:00:26.399555+08:00",
+      "last_status": "error",
+      "last_error": "Script not found: /home/ubuntu/.hermes/scripts/cron/scripts/skill-backup.sh",
+      "last_delivery_error": null,
+      "deliver": "origin",
+      "origin": {
+        "platform": "feishu",
+        "chat_id": "oc_39c71fb71c2db9be002545966567498f",
+        "chat_name": "oc_39c71fb71c2db9be002545966567498f",
+        "thread_id": null
+      },
+      "enabled_toolsets": null,
+      "workdir": null
+    },
+    {
+      "id": "dbd63f6e525c",
+      "name": "Agency\u5907\u4efd\u5230GitHub",
+      "prompt": "bash /home/ubuntu/.hermes/agency-backup/scripts/agency-backup.sh",
+      "skills": [],
+      "skill": null,
+      "model": null,
+      "provider": null,
+      "base_url": null,
+      "script": "agency-backup/scripts/agency-backup.sh",
+      "no_agent": true,
+      "context_from": null,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 4 * * *",
+        "display": "0 4 * * *"
+      },
+      "schedule_display": "0 4 * * *",
+      "repeat": {
+        "times": null,
+        "completed": 17
+      },
+      "enabled": true,
+      "state": "scheduled",
+      "paused_at": null,
+      "paused_reason": null,
+      "created_at": "2026-05-30T16:04:29.930758+08:00",
+      "next_run_at": "2026-06-17T04:00:00+08:00",
+      "last_run_at": "2026-06-16T04:00:27.707420+08:00",
+      "last_status": "error",
+      "last_error": "Script not found: /home/ubuntu/.hermes/scripts/agency-backup/scripts/agency-backup.sh",
+      "last_delivery_error": null,
+      "deliver": "origin",
+      "origin": {
+        "platform": "feishu",
+        "chat_id": "oc_39c71fb71c2db9be002545966567498f",
+        "chat_name": "oc_39c71fb71c2db9be002545966567498f",
+        "thread_id": null
+      },
+      "enabled_toolsets": null,
+      "workdir": null
+    },
+    {
+      "id": "2c3fe6b0532f",
+      "name": "\u6bcf\u65e5Lark\u6587\u6863\u63a8\u9001",
+      "prompt": "\u8bfb\u53d6 ~/.hermes/scripts/lark-doc-daily.py \u7684\u8f93\u51fa,\u628a\u90a3\u4e2a Lark \u6587\u6863(\"JORGE \u6bcf\u65e5\u5173\u6ce8\")\u7684\u4eca\u5929\u5185\u5bb9,\u7528 send_message \u5de5\u5177\u53d1\u5230\u5f53\u524d Lark \u4f1a\u8bdd\u3002\n\n\u6267\u884c\u6b65\u9aa4:\n1. \u8fd0\u884c:python3 ~/.hermes/scripts/lark-doc-daily.py\n2. \u770b\u5230 \"--- \u6587\u6863\u5185\u5bb9 ---\" \u548c \"--- \u5185\u5bb9\u7ed3\u675f ---\" \u4e4b\u95f4\u7684\u5185\u5bb9\n3. \u7528 send_message \u5de5\u5177,target \u586b \"feishu\" \u5373\u53ef(\u53d1\u56de\u5f53\u524d\u4f1a\u8bdd),\u6d88\u606f\u5185\u5bb9\u683c\u5f0f:\n\n\ud83d\udcc5 **JORGE \u6bcf\u65e5\u5173\u6ce8 - {\u4eca\u5929\u65e5\u671f}**\n\n[\u7c98\u8d34\u6587\u6863\u5185\u5bb9]\n\n\ud83d\udcce \u6587\u6863\u94fe\u63a5:https://vcn0sovt91x1.feishu.cn/docx/O8lSdcak0oQFdJxecaNcnrGvntg\n\n4. \u5982\u679c\u811a\u672c\u8f93\u51fa \"\u26a0\ufe0f \u6587\u6863\u4e3a\u7a7a\",\u5c31\u53d1\u4e00\u6761:\"\ud83d\udced \u4eca\u5929\u7684 JORGE \u6bcf\u65e5\u5173\u6ce8\u6587\u6863\u662f\u7a7a\u7684,\u8981\u4e0d\u8981\u6211\u63d0\u9192\u4f60\u66f4\u65b0\u4e00\u4e0b?\"\n\n\u52a1\u5fc5\u628a\u4eca\u5929\u7684\u5b9e\u9645\u5185\u5bb9\u53d1\u51fa\u53bb,\u4e0d\u8981\u6f0f\u3002",
+      "skills": [
+        "content-platforms"
+      ],
+      "skill": "content-platforms",
+      "model": null,
+      "provider": null,
+      "base_url": null,
+      "script": null,
+      "no_agent": false,
+      "context_from": null,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 10 * * *",
+        "display": "0 10 * * *"
+      },
+      "schedule_display": "0 10 * * *",
+      "repeat": {
+        "times": null,
+        "completed": 10
+      },
+      "enabled": true,
+      "state": "scheduled",
+      "paused_at": null,
+      "paused_reason": null,
+      "created_at": "2026-06-07T22:49:43.450929+08:00",
+      "next_run_at": "2026-06-17T10:00:00+08:00",
+      "last_run_at": "2026-06-16T10:00:48.286030+08:00",
+      "last_status": "ok",
+      "last_error": null,
+      "last_delivery_error": null,
+      "deliver": "origin",
+      "origin": {
+        "platform": "feishu",
+        "chat_id": "oc_39c71fb71c2db9be002545966567498f",
+        "chat_name": "oc_39c71fb71c2db9be002545966567498f",
+        "thread_id": null
+      },
+      "enabled_toolsets": null,
+      "workdir": null,
+      "profile": null
+    }
+  ],
+  "updated_at": "2026-06-16T23:01:09.820581+08:00"
+}
