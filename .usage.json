@@ -29,14 +29,14 @@
     "archived_at": null,
     "created_at": "2026-05-26T16:41:37.758733+00:00",
     "created_by": "agent",
-    "last_patched_at": "2026-06-11T02:06:03.206780+00:00",
-    "last_used_at": "2026-06-23T16:48:08.307557+00:00",
-    "last_viewed_at": "2026-06-23T16:48:08.300385+00:00",
-    "patch_count": 91,
+    "last_patched_at": "2026-06-24T15:02:06.445514+00:00",
+    "last_used_at": "2026-06-24T15:01:27.443077+00:00",
+    "last_viewed_at": "2026-06-24T15:01:27.439756+00:00",
+    "patch_count": 92,
     "pinned": false,
     "state": "active",
-    "use_count": 89,
-    "view_count": 72
+    "use_count": 93,
+    "view_count": 75
   },
   "daily-report": {
     "archived_at": null,
