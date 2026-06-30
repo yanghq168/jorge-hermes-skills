@@ -30,13 +30,13 @@
     "created_at": "2026-05-26T16:41:37.758733+00:00",
     "created_by": "agent",
     "last_patched_at": "2026-06-24T15:02:06.445514+00:00",
-    "last_used_at": "2026-06-29T02:00:49.792981+00:00",
-    "last_viewed_at": "2026-06-24T15:01:27.439756+00:00",
+    "last_used_at": "2026-06-30T16:59:26.116251+00:00",
+    "last_viewed_at": "2026-06-30T16:59:26.107274+00:00",
     "patch_count": 92,
     "pinned": false,
     "state": "active",
-    "use_count": 98,
-    "view_count": 75
+    "use_count": 100,
+    "view_count": 76
   },
   "daily-report": {
     "archived_at": null,
@@ -82,13 +82,13 @@
     "created_at": "2026-05-26T14:36:46.847402+00:00",
     "created_by": "agent",
     "last_patched_at": "2026-06-05T13:33:33.788886+00:00",
-    "last_used_at": "2026-06-23T16:48:08.303837+00:00",
-    "last_viewed_at": "2026-06-23T16:48:08.294658+00:00",
+    "last_used_at": "2026-06-30T16:59:26.120211+00:00",
+    "last_viewed_at": "2026-06-30T16:59:26.111451+00:00",
     "patch_count": 33,
     "pinned": false,
     "state": "active",
-    "use_count": 30,
-    "view_count": 30
+    "use_count": 31,
+    "view_count": 31
   },
   "productivity/content-platforms": {
     "archived_at": null,
