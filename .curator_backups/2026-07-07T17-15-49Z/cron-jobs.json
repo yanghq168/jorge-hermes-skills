@@ -14,21 +14,21 @@
       "context_from": null,
       "schedule": {
         "kind": "cron",
-        "expr": "30 21 * * *",
-        "display": "30 21 * * *"
+        "expr": "0 23 * * *",
+        "display": "0 23 * * *"
       },
-      "schedule_display": "30 21 * * *",
+      "schedule_display": "0 23 * * *",
       "repeat": {
         "times": null,
-        "completed": 7
+        "completed": 43
       },
       "enabled": true,
       "state": "scheduled",
       "paused_at": null,
       "paused_reason": null,
       "created_at": "2026-05-27T00:40:27.868154+08:00",
-      "next_run_at": "2026-06-03T21:30:00+08:00",
-      "last_run_at": "2026-06-02T21:30:42.886113+08:00",
+      "next_run_at": "2026-07-08T23:00:00+08:00",
+      "last_run_at": "2026-07-07T23:01:49.299136+08:00",
       "last_status": "ok",
       "last_error": null,
       "last_delivery_error": null,
@@ -62,15 +62,15 @@
       "schedule_display": "30 20 * * *",
       "repeat": {
         "times": null,
-        "completed": 6
+        "completed": 41
       },
       "enabled": true,
       "state": "scheduled",
       "paused_at": null,
       "paused_reason": null,
       "created_at": "2026-05-27T01:21:17.367934+08:00",
-      "next_run_at": "2026-06-03T20:30:00+08:00",
-      "last_run_at": "2026-06-02T20:31:14.071119+08:00",
+      "next_run_at": "2026-07-08T20:30:00+08:00",
+      "last_run_at": "2026-07-07T20:31:15.702079+08:00",
       "last_status": "ok",
       "last_error": null,
       "last_delivery_error": "delivery error: Feishu send failed: [99992402] field validation failed",
@@ -104,15 +104,15 @@
       "schedule_display": "0 2 * * *",
       "repeat": {
         "times": null,
-        "completed": 6
+        "completed": 41
       },
       "enabled": true,
       "state": "scheduled",
       "paused_at": null,
       "paused_reason": null,
       "created_at": "2026-05-27T12:31:50.325994+08:00",
-      "next_run_at": "2026-06-03T02:00:00+08:00",
-      "last_run_at": "2026-06-02T02:00:10.470333+08:00",
+      "next_run_at": "2026-07-08T02:00:00+08:00",
+      "last_run_at": "2026-07-07T02:00:17.884550+08:00",
       "last_status": "ok",
       "last_error": null,
       "last_delivery_error": "delivery error: Feishu send failed: [99992402] field validation failed",
@@ -219,7 +219,7 @@
       "model": null,
       "provider": null,
       "base_url": null,
-      "script": "xhs-escape-weekend.py",
+      "script": "cron/scripts/xhs-escape-weekend.py",
       "no_agent": true,
       "context_from": null,
       "schedule": {
@@ -230,17 +230,17 @@
       "schedule_display": "0 10 * * *",
       "repeat": {
         "times": null,
-        "completed": 3
+        "completed": 38
       },
       "enabled": true,
       "state": "scheduled",
       "paused_at": null,
       "paused_reason": null,
       "created_at": "2026-05-30T10:58:38.563097+08:00",
-      "next_run_at": "2026-06-03T10:00:00+08:00",
-      "last_run_at": "2026-06-02T10:00:16.299062+08:00",
+      "next_run_at": "2026-07-08T10:00:00+08:00",
+      "last_run_at": "2026-07-07T10:00:23.786109+08:00",
       "last_status": "error",
-      "last_error": "Script not found: /home/ubuntu/.hermes/scripts/xhs-escape-weekend.py",
+      "last_error": "Script not found: /home/ubuntu/.hermes/scripts/cron/scripts/xhs-escape-weekend.py",
       "last_delivery_error": null,
       "deliver": "origin",
       "origin": {
@@ -261,7 +261,7 @@
       "model": null,
       "provider": null,
       "base_url": null,
-      "script": "wechat-article-daily.py",
+      "script": "cron/scripts/wechat-article-daily.py",
       "no_agent": true,
       "context_from": null,
       "schedule": {
@@ -272,17 +272,17 @@
       "schedule_display": "0 7 * * *",
       "repeat": {
         "times": null,
-        "completed": 3
+        "completed": 38
       },
       "enabled": true,
       "state": "scheduled",
       "paused_at": null,
       "paused_reason": null,
       "created_at": "2026-05-30T10:58:41.902182+08:00",
-      "next_run_at": "2026-06-03T07:00:00+08:00",
-      "last_run_at": "2026-06-02T07:00:14.209566+08:00",
+      "next_run_at": "2026-07-08T07:00:00+08:00",
+      "last_run_at": "2026-07-07T07:00:21.633642+08:00",
       "last_status": "error",
-      "last_error": "Script not found: /home/ubuntu/.hermes/scripts/wechat-article-daily.py",
+      "last_error": "Script not found: /home/ubuntu/.hermes/scripts/cron/scripts/wechat-article-daily.py",
       "last_delivery_error": null,
       "deliver": "origin",
       "origin": {
@@ -303,7 +303,7 @@
       "model": null,
       "provider": null,
       "base_url": null,
-      "script": "skill-backup.sh",
+      "script": "cron/scripts/skill-backup.sh",
       "no_agent": true,
       "context_from": null,
       "schedule": {
@@ -314,17 +314,17 @@
       "schedule_display": "0 3 * * *",
       "repeat": {
         "times": null,
-        "completed": 3
+        "completed": 38
       },
       "enabled": true,
       "state": "scheduled",
       "paused_at": null,
       "paused_reason": null,
       "created_at": "2026-05-30T16:04:13.051517+08:00",
-      "next_run_at": "2026-06-03T03:00:00+08:00",
-      "last_run_at": "2026-06-02T03:00:11.461607+08:00",
+      "next_run_at": "2026-07-08T03:00:00+08:00",
+      "last_run_at": "2026-07-07T03:00:18.832586+08:00",
       "last_status": "error",
-      "last_error": "Script not found: /home/ubuntu/.hermes/scripts/skill-backup.sh",
+      "last_error": "Script not found: /home/ubuntu/.hermes/scripts/cron/scripts/skill-backup.sh",
       "last_delivery_error": null,
       "deliver": "origin",
       "origin": {
@@ -345,7 +345,7 @@
       "model": null,
       "provider": null,
       "base_url": null,
-      "script": "agency-backup.sh",
+      "script": "agency-backup/scripts/agency-backup.sh",
       "no_agent": true,
       "context_from": null,
       "schedule": {
@@ -356,17 +356,17 @@
       "schedule_display": "0 4 * * *",
       "repeat": {
         "times": null,
-        "completed": 3
+        "completed": 38
       },
       "enabled": true,
       "state": "scheduled",
       "paused_at": null,
       "paused_reason": null,
       "created_at": "2026-05-30T16:04:29.930758+08:00",
-      "next_run_at": "2026-06-03T04:00:00+08:00",
-      "last_run_at": "2026-06-02T04:00:12.670880+08:00",
+      "next_run_at": "2026-07-08T04:00:00+08:00",
+      "last_run_at": "2026-07-07T04:00:20.058543+08:00",
       "last_status": "error",
-      "last_error": "Script not found: /home/ubuntu/.hermes/scripts/agency-backup.sh",
+      "last_error": "Script not found: /home/ubuntu/.hermes/scripts/agency-backup/scripts/agency-backup.sh",
       "last_delivery_error": null,
       "deliver": "origin",
       "origin": {
@@ -377,7 +377,52 @@
       },
       "enabled_toolsets": null,
       "workdir": null
+    },
+    {
+      "id": "2c3fe6b0532f",
+      "name": "\u6bcf\u65e5Lark\u6587\u6863\u63a8\u9001",
+      "prompt": "\u8bfb\u53d6 ~/.hermes/scripts/lark-doc-daily.py \u7684\u8f93\u51fa,\u628a\u90a3\u4e2a Lark \u6587\u6863(\"JORGE \u6bcf\u65e5\u5173\u6ce8\")\u7684\u4eca\u5929\u5185\u5bb9,\u7528 send_message \u5de5\u5177\u53d1\u5230\u5f53\u524d Lark \u4f1a\u8bdd\u3002\n\n\u6267\u884c\u6b65\u9aa4:\n1. \u8fd0\u884c:python3 ~/.hermes/scripts/lark-doc-daily.py\n2. \u770b\u5230 \"--- \u6587\u6863\u5185\u5bb9 ---\" \u548c \"--- \u5185\u5bb9\u7ed3\u675f ---\" \u4e4b\u95f4\u7684\u5185\u5bb9\n3. \u7528 send_message \u5de5\u5177,target \u586b \"feishu\" \u5373\u53ef(\u53d1\u56de\u5f53\u524d\u4f1a\u8bdd),\u6d88\u606f\u5185\u5bb9\u683c\u5f0f:\n\n\ud83d\udcc5 **JORGE \u6bcf\u65e5\u5173\u6ce8 - {\u4eca\u5929\u65e5\u671f}**\n\n[\u7c98\u8d34\u6587\u6863\u5185\u5bb9]\n\n\ud83d\udcce \u6587\u6863\u94fe\u63a5:https://vcn0sovt91x1.feishu.cn/docx/O8lSdcak0oQFdJxecaNcnrGvntg\n\n4. \u5982\u679c\u811a\u672c\u8f93\u51fa \"\u26a0\ufe0f \u6587\u6863\u4e3a\u7a7a\",\u5c31\u53d1\u4e00\u6761:\"\ud83d\udced \u4eca\u5929\u7684 JORGE \u6bcf\u65e5\u5173\u6ce8\u6587\u6863\u662f\u7a7a\u7684,\u8981\u4e0d\u8981\u6211\u63d0\u9192\u4f60\u66f4\u65b0\u4e00\u4e0b?\"\n\n\u52a1\u5fc5\u628a\u4eca\u5929\u7684\u5b9e\u9645\u5185\u5bb9\u53d1\u51fa\u53bb,\u4e0d\u8981\u6f0f\u3002",
+      "skills": [
+        "content-platforms"
+      ],
+      "skill": "content-platforms",
+      "model": null,
+      "provider": null,
+      "base_url": null,
+      "script": null,
+      "no_agent": false,
+      "context_from": null,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 10 * * *",
+        "display": "0 10 * * *"
+      },
+      "schedule_display": "0 10 * * *",
+      "repeat": {
+        "times": null,
+        "completed": 31
+      },
+      "enabled": true,
+      "state": "scheduled",
+      "paused_at": null,
+      "paused_reason": null,
+      "created_at": "2026-06-07T22:49:43.450929+08:00",
+      "next_run_at": "2026-07-08T10:00:00+08:00",
+      "last_run_at": "2026-07-07T10:00:48.266748+08:00",
+      "last_status": "ok",
+      "last_error": null,
+      "last_delivery_error": null,
+      "deliver": "origin",
+      "origin": {
+        "platform": "feishu",
+        "chat_id": "oc_39c71fb71c2db9be002545966567498f",
+        "chat_name": "oc_39c71fb71c2db9be002545966567498f",
+        "thread_id": null
+      },
+      "enabled_toolsets": null,
+      "workdir": null,
+      "profile": null
     }
   ],
-  "updated_at": "2026-06-02T21:30:42.886636+08:00"
+  "updated_at": "2026-07-07T23:01:49.299690+08:00"
 }
