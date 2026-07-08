@@ -30,26 +30,26 @@
     "created_at": "2026-05-26T16:41:37.758733+00:00",
     "created_by": "agent",
     "last_patched_at": "2026-06-24T15:02:06.445514+00:00",
-    "last_used_at": "2026-07-07T17:16:11.831472+00:00",
-    "last_viewed_at": "2026-07-07T17:16:11.827139+00:00",
+    "last_used_at": "2026-07-08T15:01:05.343969+00:00",
+    "last_viewed_at": "2026-07-08T15:01:05.339764+00:00",
     "patch_count": 92,
     "pinned": false,
     "state": "active",
-    "use_count": 109,
-    "view_count": 78
+    "use_count": 111,
+    "view_count": 79
   },
   "cron-job-debugging": {
     "archived_at": null,
     "created_at": "2026-07-03T23:15:48.543504+00:00",
     "created_by": "agent",
     "last_patched_at": "2026-07-03T23:15:59.675931+00:00",
-    "last_used_at": "2026-07-07T17:16:11.822858+00:00",
-    "last_viewed_at": "2026-07-07T17:16:11.818197+00:00",
+    "last_used_at": "2026-07-08T15:01:05.347465+00:00",
+    "last_viewed_at": "2026-07-08T15:01:05.333597+00:00",
     "patch_count": 1,
     "pinned": false,
     "state": "active",
-    "use_count": 2,
-    "view_count": 2
+    "use_count": 3,
+    "view_count": 3
   },
   "daily-report": {
     "archived_at": null,
