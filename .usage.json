@@ -30,13 +30,13 @@
     "created_at": "2026-05-26T16:41:37.758733+00:00",
     "created_by": "agent",
     "last_patched_at": "2026-06-24T15:02:06.445514+00:00",
-    "last_used_at": "2026-08-02T12:30:24.681964+00:00",
-    "last_viewed_at": "2026-08-02T12:30:24.677759+00:00",
+    "last_used_at": "2026-08-03T12:30:46.931803+00:00",
+    "last_viewed_at": "2026-08-03T12:30:46.927349+00:00",
     "patch_count": 92,
     "pinned": false,
     "state": "active",
-    "use_count": 156,
-    "view_count": 99
+    "use_count": 158,
+    "view_count": 100
   },
   "cron-job-debugging": {
     "archived_at": null,
