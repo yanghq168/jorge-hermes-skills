@@ -30,26 +30,26 @@
     "created_at": "2026-05-26T16:41:37.758733+00:00",
     "created_by": "agent",
     "last_patched_at": "2026-06-24T15:02:06.445514+00:00",
-    "last_used_at": "2026-08-10T02:00:01.253617+00:00",
-    "last_viewed_at": "2026-08-05T12:30:53.790354+00:00",
+    "last_used_at": "2026-08-11T18:20:10.937506+00:00",
+    "last_viewed_at": "2026-08-11T18:20:10.923067+00:00",
     "patch_count": 92,
     "pinned": false,
     "state": "active",
-    "use_count": 167,
-    "view_count": 102
+    "use_count": 169,
+    "view_count": 103
   },
   "cron-job-debugging": {
     "archived_at": null,
     "created_at": "2026-07-03T23:15:48.543504+00:00",
     "created_by": "agent",
     "last_patched_at": "2026-07-03T23:15:59.675931+00:00",
-    "last_used_at": "2026-08-04T18:10:00.092282+00:00",
-    "last_viewed_at": "2026-08-04T18:10:00.085148+00:00",
+    "last_used_at": "2026-08-11T18:20:10.916491+00:00",
+    "last_viewed_at": "2026-08-11T18:20:10.902128+00:00",
     "patch_count": 1,
     "pinned": false,
     "state": "active",
-    "use_count": 13,
-    "view_count": 13
+    "use_count": 14,
+    "view_count": 14
   },
   "daily-report": {
     "archived_at": null,
@@ -95,13 +95,13 @@
     "created_at": "2026-05-26T14:36:46.847402+00:00",
     "created_by": "agent",
     "last_patched_at": "2026-06-05T13:33:33.788886+00:00",
-    "last_used_at": "2026-08-04T18:10:00.097448+00:00",
-    "last_viewed_at": "2026-08-04T18:10:00.088931+00:00",
+    "last_used_at": "2026-08-11T18:20:10.941958+00:00",
+    "last_viewed_at": "2026-08-11T18:20:10.932298+00:00",
     "patch_count": 33,
     "pinned": false,
     "state": "active",
-    "use_count": 37,
-    "view_count": 37
+    "use_count": 38,
+    "view_count": 38
   },
   "productivity/content-platforms": {
     "archived_at": null,

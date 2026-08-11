@@ -1,9 +1,9 @@
 {
-  "last_report_path": "/home/ubuntu/.hermes/logs/curator/20260804-180955",
-  "last_run_at": "2026-08-04T18:09:55.407705+00:00",
-  "last_run_duration_seconds": 31.759405,
-  "last_run_summary": "auto: no changes; llm: All three are confirmed agent-created. The candidate list of 3 is accurate and complete.\n\n**Final assessment:**\n\nThe three skills are all class-level umbrellas with mature structure:\n\n| Skill | Domain | State | Verdict |\n|---|---|---|---|\n|…",
+  "last_report_path": "/home/ubuntu/.hermes/logs/curator/20260811-182006",
+  "last_run_at": "2026-08-11T18:20:06.180001+00:00",
+  "last_run_duration_seconds": 24.32987,
+  "last_run_summary": "auto: no changes; llm: Now I have full clarity. The bundled manifest confirms: **`content-platforms`, `cron-job-debugging`, and `openclaw-to-hermes-migration` are NOT in the bundled manifest** — they are agent-created, which matches the candidate list.\n\n## Analys…",
   "last_run_summary_shown_at": null,
   "paused": false,
-  "run_count": 10
+  "run_count": 11
 }
