@@ -1,6 +1,6 @@
 ---
 name: cron-job-debugging
-description: "Debug silently-failing Hermes cron jobs (no_agent script mode, scheduled prompt jobs, chained jobs). Diagnose 'Script not found', silent no-op, exit-code-without-output, and path-resolution failures by reading scheduler output logs in ~/.hermes/cron/output/. Applies the script-path resolution rule and the path-rewrite fix loop."
+description: "Debug silently-failing Hermes cron jobs (no_agent script mode, scheduled prompt jobs, chained jobs). Diagnose 'Script not found', silent no-op, exit-code-without-output, path-resolution failures, AND credential/SMTP delivery failures by reading scheduler output logs in ~/.hermes/cron/output/. Applies the script-path resolution rule, the SMTP-credential deep-dive, and the local-fallback save pattern."
 version: 1.0.0
 author: Hermes Agent
 license: MIT
@@ -65,6 +65,8 @@ just glance at the header.
 | Non-zero exit code | Script crashed | Run the script manually to see the traceback |
 | (no log file at all) | Job didn't tick — scheduler down or paused | `hermes cron status` |
 | Log says success but delivery failed | Job ran but couldn't reach the target | Check `delivery` config + target chat/channel |
+| `Connection unexpectedly closed` / `SMTPServerDisconnected` | Almost always a **credential/transport failure**, not a network blip | See "SMTP/credential failure deep-dive" below |
+| `535 Login fail` / `535 Authentication failed` | SMTP auth code / password is wrong or expired | See "SMTP/credential failure deep-dive" below |
 
 ### 4. Apply the Script-path resolution rule
 
@@ -108,7 +110,67 @@ hermes cron run <job_id>
 cat ~/.hermes/cron/output/<job_id>/<newest>.md   # confirm success
 ```
 
-### 5. Verify by triggering
+### 5. SMTP / credential failure deep-dive (delivery-side silent failures)
+
+The other common silent-failure class: the script runs, prints `❌ 发送失败: Connection unexpectedly closed`, exits 0 — and nothing reaches the inbox. The cryptic "connection closed" hides the real cause (almost always auth).
+
+**The trap**: Python's `smtplib` re-raises the server's *post-AUTH* socket teardown as a generic `SMTPServerDisconnected("Connection unexpectedly closed")`. The real rejection is buried in the server transcript a few lines earlier. You cannot see it from the script's stdout.
+
+**Step 1 — Reproduce with debug output to surface the real error:**
+
+```bash
+cd ~/.hermes/cron/scripts
+python3 -c "
+import smtplib, socket
+from email.mime.text import MIMEText
+socket.setdefaulttimeout(30)
+smtplib.SMTP.debuglevel = 1
+with smtplib.SMTP_SSL('<smtp_server>', 465, timeout=30) as s:
+    s.login('<user>', '<pass>')
+    s.sendmail('<user>', '<to>', 'Subject: t\n\ntest')
+"
+```
+
+Look at the `reply:` lines. The smoking gun is one of:
+
+- `535 Login fail. Account is abnormal, service is not open, password is incorrect, login frequency limited...` — **auth code/password is wrong, expired, or service not enabled**. Cannot be fixed remotely; user must log into the mail provider's web UI and regenerate.
+- `550 Mailbox not found` / `User not found` — recipient address wrong, or sender not authorized to send as that address.
+- `554 DT:SPM ...` (QQ specific) — message body rejected as spam; shorten subject, remove URL shorteners, or fix plain-text/HTML mismatch.
+- `454 4.7.0 Too many login attempts` — rate-limited; back off and try later, or stop running the script from multiple places.
+
+**Step 2 — Verify the credential actually matches what's stored.** Cron scripts read from `~/.hermes/cron/config/config.yaml` (via the standard `config_loader.py`). They do NOT inherit your interactive shell's env vars. So if your working theory is "the env-var auth code works but the YAML one doesn't" — check both:
+
+```bash
+# What's in the config file
+grep -A1 smtp_pass ~/.hermes/cron/config/config.yaml
+# What's in the env (if the script reads os.environ)
+env | grep -iE "smtp|auth_code|mail_pass"
+# Which one is the script actually using?
+grep -nE "smtp_pass|os\.environ|SMTP_PASS" ~/.hermes/cron/scripts/<script>.py | head
+```
+
+In Hermes' standard pattern (`from config_loader import get_mail_config`), the YAML wins over env. If both are wrong, the fix is the YAML; env vars are only a fallback inside the `try/except ImportError` block.
+
+**Step 3 — Try the alternate transport.** Port 465 (SMTPS/SSL) and port 587 (STARTTLS) are independent — one can be blocked by the host firewall while the other works. If 465 fails, retry with `smtplib.SMTP('host', 587)` + `.starttls()`. If both fail with the same `535`, the credential is dead regardless of transport.
+
+**Step 4 — Save locally as a fallback so today's content isn't lost.** While waiting for the user to fix the credential, persist the generated output so the article/digest is still recoverable:
+
+```python
+# Inside the cron script's main(), BEFORE send_email(), or in a wrapper:
+import os
+from datetime import datetime
+out_dir = os.path.expanduser('~/.hermes/cron/output')
+os.makedirs(out_dir, exist_ok=True)
+ts = datetime.now().strftime('%Y-%m-%d_%H-%M')
+with open(f'{out_dir}/<script>_{ts}.html', 'w', encoding='utf-8') as f:
+    f.write(full_html)
+with open(f'{out_dir}/<script>_{ts}.txt', 'w', encoding='utf-8') as f:
+    f.write(plain_text)
+```
+
+Then in the failure report, point the user at the saved file. This is the difference between "today's content is gone" and "today's content is on disk, please fix auth."
+
+### 6. Verify by triggering
 
 ```bash
 cronjob(action='run', job_id='<id>')
@@ -147,6 +209,34 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
 - **`cronjob(action='run')` runs once on the next tick, not immediately.**
   If you need synchronous verification, execute the script directly via
   terminal and read the log a moment later.
+
+- **`Connection unexpectedly closed` is almost never a real network issue.**
+  Python's `smtplib` reports the server's post-AUTH socket teardown as that
+  generic error. The actual cause (535, rate limit, blocked port) is in the
+  SMTP transcript one level deeper. Turn on `smtplib.SMTP.debuglevel = 1`
+  and re-read the `reply:` lines before assuming connectivity is the problem.
+  See the "SMTP / credential failure deep-dive" section for the full recipe.
+
+- **Cron scripts do not inherit your interactive env vars.** A script that
+  reads `os.environ['QQ_EMAIL_AUTH_CODE']` will get an empty string in cron
+  context, and your "I tested it manually and it worked" recollection is
+  wrong because your shell *did* have the var set. Either bake the credential
+  into `~/.hermes/cron/config/config.yaml`, or `export` it at the top of
+  the script. See `references/smtp-credential-failure-case-study.md` for a
+  worked case study.
+
+- **A failed email cron loses today's content unless you save it locally.**
+  The script's `try/except` around `sendmail` swallows the error and exits
+  cleanly — the article is gone. Always save the rendered HTML/text to
+  `~/.hermes/cron/output/<script>_<timestamp>.{html,txt}` BEFORE attempting
+  delivery, so a credential outage doesn't also nuke the work product.
+  See "Step 4 — Save locally as a fallback" in the SMTP deep-dive.
+
+- **Provider-specific error codes are not interchangeable.** QQ's `535` is
+  a generic auth/account-abnormal message; Gmail is more specific; Outlook
+  /Office365 adds a `5.7.606` error code you'll need to look up. Don't try
+  to pattern-match across providers — read the full error string the first
+  time.
 
 ## Diagnostic commands cheatsheet
 
