@@ -1,6 +1,10 @@
 # SMTP Credential Failure Case Study
 
-Real session transcript (2026-08-23): daily toutiao article cron `~/.hermes/cron/scripts/toutiao-article-daily.py` failed with `Connection unexpectedly closed`. Root cause: QQ Mail SMTP auth code was revoked.
+Two real session transcripts covering the two QQ SMTP auth-code failure modes this Hermes deployment hits repeatedly.
+
+## Case A — Standard `535 Login fail` variant (2026-08-23)
+
+Daily toutiao article cron `~/.hermes/cron/scripts/toutiao-article-daily.py` failed with `Connection unexpectedly closed`. Root cause: QQ Mail SMTP auth code was revoked.
 
 ## Symptom chain
 
@@ -69,3 +73,51 @@ with open(f'{out_dir}/toutiao_{ts}.txt', 'w', encoding='utf-8') as f:
 ```
 
 This pattern should be added to every daily-content cron script (not just toutiao) — `daily_report.py`, `xhs-travel-daily.py`, `xiaohongshu-travel-daily.py`, `xhs-escape-weekend.py`, `bithappy_email_pro.py`, `unified-content-daily.py` all have the same vulnerability.
+
+## Case B — QQ silent-reject variant, NO `535` in transcript (2026-08-24)
+
+Same script, same `Connection unexpectedly closed` symptom, BUT the diagnostic signature was completely different from Case A. Documenting because the existing Case A recipe ("enable debuglevel, look for 535") leads the operator astray here.
+
+### What `debuglevel=1` showed
+
+```text
+send: 'EHLO test\r\n'
+reply: b'250 newxmesmtplogicsvrsza63-0.qq.com\r\nPIPELINING\r\nSIZE 73400320\r\nAUTH LOGIN PLAIN XOAUTH XOAUTH2\r\nAUTH=LOGIN ...'
+send: 'AUTH PLAIN <base64>\r\n'
+# <<< NOTHING HERE — no reply line, no 535 >>>
+SMTPServerDisconnected: Connection unexpectedly closed
+```
+
+The 535 line is **missing**. The server accepted EHLO cleanly, accepted AUTH PLAIN framing, then closed the TLS socket mid-handshake with no SMTP-level reply. `debuglevel` only shows what smtplib sees on the wire — and QQ's anti-spam is dropping the connection at the TCP layer before sending a status code.
+
+### Why this matters
+
+The Case A diagnostic recipe ("look at the 535 in the transcript") leads the operator to conclude "no 535 means it's not auth, must be network/firewall" — and chase the wrong fix for hours. **This is wrong.** The actual cause is still credential revocation; QQ just revoked it more aggressively this time and the server doesn't bother to send a polite SMTP reply before hanging up.
+
+### How to distinguish from a real network problem
+
+| Probe | Silent-reject (this case) | Real network/firewall failure |
+|---|---|---|
+| `SMTP_SSL(465)` EHLO | Clean 250 reply | Hangs at connect, or `ConnectionRefusedError`, or `ssl.SSLError` |
+| `SMTP(587)` + STARTTLS EHLO | Clean 250 reply | Same — connect-time failure |
+| AUTH after either EHLO | Server closes socket, **no SMTP reply** | Server never reaches AUTH (connect hangs first) |
+| Retry loop × 3 | Same silent close every time | Intermittent (timeout now, success later) |
+| Other recipients | Same silent close (auth-code-scoped) | May succeed for some hosts (firewall-scoped) |
+
+**The defining signal:** EHLO succeeds, then AUTH dies with no `reply:` line. If you see this, the credential is dead — same fix as Case A (regenerate in QQ web UI). Don't waste time on firewall/proxy/network debugging.
+
+### What fixed it (in this session)
+
+The same as Case A — required user to log into https://mail.qq.com → 设置 → 账户 → generate a new SMTP authorization code, then update both `~/.hermes/cron/config/config.yaml` (`smtp_pass`) AND `~/.hermes/.env` (`QQ_EMAIL_AUTH_CODE`). They were the same value (`iylylmwnitbbbebi`) and both were revoked.
+
+### Additional lesson not in Case A
+
+**Two-source-of-truth, both stale.** This deployment stores the SMTP credential in TWO places: `config.yaml` (read by `config_loader.py` at runtime) and `~/.hermes/.env` (`QQ_EMAIL_AUTH_CODE`, read by other paths). Both were last updated together, so they drift in lockstep. A common reflex when fixing SMTP is to update only one and re-test; that test still fails because the other still has the dead value. Diff both before regenerating:
+
+```bash
+diff <(grep -oE '"[a-z]{16}"' ~/.hermes/cron/config/config.yaml | tr -d '"') \
+     <(grep -oE 'QQ_EMAIL_AUTH_CODE=[a-z]{16}' ~/.hermes/.env | cut -d= -f2) \
+  && echo "✅ Both stores match — only one credential to regenerate"
+```
+
+When they match, you have ONE credential problem, not two. When they differ, you have TWO — fix both, in order: regenerate on QQ web UI, update YAML (takes effect immediately for next run), update .env (for any script that reads env directly).

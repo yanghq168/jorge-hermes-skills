@@ -138,6 +138,10 @@ Look at the `reply:` lines. The smoking gun is one of:
 - `554 DT:SPM ...` (QQ specific) — message body rejected as spam; shorten subject, remove URL shorteners, or fix plain-text/HTML mismatch.
 - `454 4.7.0 Too many login attempts` — rate-limited; back off and try later, or stop running the script from multiple places.
 
+**⚠️ QQ Mail silent-reject variant (no 535 in transcript):** When QQ's anti-spam system has aggressively revoked an auth code, the server may close the TLS socket IMMEDIATELY after `AUTH` with NO `reply:` line at all — `debuglevel=1` will show a clean `EHLO 250` then a bare `SMTPServerDisconnected` with no `535` between them. This is indistinguishable from a network drop except by the pattern: SSL handshake + EHLO succeed + AUTH never gets a reply → credential revoked by aggressive anti-spam (not just expired). Same user fix (regenerate in QQ web UI), but the diagnostic signature is different — don't conclude "network issue" just because the 535 line is missing. Confirm by trying port 587 STARTTLS as well: if EHLO succeeds there too and AUTH dies silently, it's the same silent-reject. If port 587 hangs at connect, you have a real firewall/network problem instead.
+
+**Faster path — run `scripts/probe_smtp.py`** instead of retyping the debuglevel recipe. It auto-detects which credential sources this Hermes deployment uses (`config.yaml` + `~/.hermes/.env`), runs both 465-SSL and 587-STARTTLS probes, and reports which of the three failure modes you're in: 535-in-transcript (Case A), no-reply-silent-reject (Case B), or connect-time failure (Case C). Exit 0 = auth dead, exit 1 = real network problem. See `references/smtp-credential-failure-case-study.md` for the full Case B transcript.
+
 **Step 2 — Verify the credential actually matches what's stored.** Cron scripts read from `~/.hermes/cron/config/config.yaml` (via the standard `config_loader.py`). They do NOT inherit your interactive shell's env vars. So if your working theory is "the env-var auth code works but the YAML one doesn't" — check both:
 
 ```bash
@@ -237,6 +241,20 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   /Office365 adds a `5.7.606` error code you'll need to look up. Don't try
   to pattern-match across providers — read the full error string the first
   time.
+
+- **Two-source-of-truth can both be stale.** When `config.yaml`'s `smtp_pass`
+  and `~/.hermes/.env`'s `QQ_EMAIL_AUTH_CODE` were copied from the same QQ
+  authorization code at setup time, a single revocation leaves BOTH dead.
+  Just updating one won't help. Diff both against the live QQ web UI value
+  before deciding the YAML is the canonical source. Pattern: `diff <(echo "$QQ_EMAIL_AUTH_CODE") <(grep smtp_pass ~/.hermes/cron/config/config.yaml | awk '{print $2}' | tr -d '"')` — if they match, you only have one
+  credential to regenerate, not two.
+
+- **QQ silent-reject has no `535` reply in the transcript.** Unlike the
+  documented case study, a QQ anti-spam that aggressively revokes an auth
+  code may close the TLS socket right after `AUTH` with no `reply:` line at
+  all — `debuglevel=1` shows a clean EHLO then a bare `SMTPServerDisconnected`.
+  Don't conclude "network problem" just because the 535 is missing.
+  See the "QQ Mail silent-reject variant" callout in the SMTP deep-dive.
 
 ## Diagnostic commands cheatsheet
 
