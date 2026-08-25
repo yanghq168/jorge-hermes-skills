@@ -1,6 +1,6 @@
 # SMTP Credential Failure Case Study
 
-Two real session transcripts covering the two QQ SMTP auth-code failure modes this Hermes deployment hits repeatedly.
+Three real session transcripts covering the QQ SMTP auth-code failure modes this Hermes deployment hits repeatedly. Read in order: A (canonical 535), B (silent-reject variant), C (recurrence-class signal + the durable fix).
 
 ## Case A — Standard `535 Login fail` variant (2026-08-23)
 
@@ -22,7 +22,7 @@ The cron script's `try/except Exception` block in `send_email()` swallowed the s
 send: 'AUTH PLAIN ADU2OTU0NTAxNUBxcS5jb20AaXlseWxtd25pdGJiYmViaQ==\r\n'
 reply: b'535 Login fail. Account is abnormal, service is not open, password is
         incorrect, login frequency limited, or system is busy.\r\n'
-send: 'AUTH LOGIN NTY5NTQ1MDE1QHFxLmNvbQ==\r\n'
+send: 'AUTH LOGIN NTY2OTU0NTAxNUBxcS5jb20==\r\n'
 send: 'QUIT\r\n'
 SMTPServerDisconnected: Connection unexpectedly closed
 ```
@@ -121,3 +121,33 @@ diff <(grep -oE '"[a-z]{16}"' ~/.hermes/cron/config/config.yaml | tr -d '"') \
 ```
 
 When they match, you have ONE credential problem, not two. When they differ, you have TWO — fix both, in order: regenerate on QQ web UI, update YAML (takes effect immediately for next run), update .env (for any script that reads env directly).
+
+## Case C — Recurrence after fix: same code, same script, same week (2026-08-25)
+
+Two days after Case B's fix, the same `toutiao-article-daily.py` cron failed again with the identical `535 Login fail` symptom on the identical `iylylmwnitbbbebi` auth code. Documenting as Case C so future sessions recognize the pattern: **QQ Mail SMTP authorization codes in this deployment have a recurring ~weekly-to-biweekly revocation cycle**, not a one-time expiry.
+
+### What was different from Case A/B
+
+The diagnostic path was already known — went straight to `smtplib.SMTP.debuglevel = 1` and confirmed the 535 in one shot. What was NEW and worth capturing:
+
+1. **Content-loss prevention code shipped to the script.** Before this session, the script's `send_email()` had a bare `try/except Exception` that swallowed `SMTPServerDisconnected` and exited 0 — the article was lost. The fix layered:
+   - One retry on transient `(SMTPServerDisconnected, SMTPException, OSError)` with 3s sleep
+   - On final failure, save the rendered HTML to `~/.hermes/cron/outbox/toutiao/<YYYYMMDD_HHMM>_<direction>.html`
+   - Embed the absolute path in the error message so the failure report can show the user where today's content lives
+2. **The `outbox/` tree pattern.** Separate from `~/.hermes/cron/output/<job_id>/` (scheduler logs) to avoid colliding with the scheduler's auto-managed log rotation. Each delivery platform gets its own subdir + a `README.md` summarizing the most recent outage and the user-side fix.
+3. **The user-facing failure message now reads like a runbook entry**, not just an error: `❌ 发送失败：Connection unexpectedly closed (重试2次仍失败，HTML已备份: /home/ubuntu/.hermes/cron/outbox/toutiao/20260825_2031_亲戚恩怨.html)` — points directly at the artifact.
+
+### Why this matters as a recurring-class signal
+
+If you see "Connection unexpectedly closed" from `569545015@qq.com` SMTP, **do not spend time re-diagnosing**. The credential is almost certainly revoked again. Jump straight to:
+
+1. Run `scripts/probe_smtp.py` (or the manual `debuglevel=1` recipe) to confirm the 535 / silent-reject pattern
+2. Tell the user: "QQ Mail SMTP auth code revoked again — please regenerate at https://mail.qq.com → 设置 → 账户 → POP3/IMAP/SMTP/Exchange/CardDAV/CalDAV服务"
+3. Point them at the outbox backup for today's content
+4. Update `~/.hermes/cron/config/config.yaml` (and `~/.hermes/.env` if it's a different value) with the new code
+
+The next cron run after the update will succeed. Do NOT apply this same code to `wechat-article-daily.py`, `unified-content-daily.py`, etc. proactively — they share the same credential and will fail identically, but the user only needs to fix it once in the YAML. Updating the outbox tree template per-script is fine (so each platform has its own `outbox/<platform>/README.md` with the current outage timestamp), but the auth fix is centralized.
+
+### Same outbox pattern needed in other daily-content scripts
+
+Identical vulnerability exists in: `wechat-article-daily.py`, `unified-content-daily.py`, `xhs-travel-daily.py`, `xiaohongshu-travel-daily.py`, `xhs-escape-weekend.py`, `bithappy_email_pro.py`, `daily_report.py`. All use the same `config_loader.py::get_mail_config()` and the same fragile `try/except Exception` around `smtplib.SMTP_SSL.login()`. Apply the Case C fix (retry + outbox backup) to each — or refactor `send_email()` into a shared helper under `~/.hermes/cron/scripts/_email_helpers.py` that all of them import. The helper is the right answer if you expect this revocation pattern to keep recurring.

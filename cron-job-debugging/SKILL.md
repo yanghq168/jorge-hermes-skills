@@ -174,10 +174,49 @@ with open(f'{out_dir}/<script>_{ts}.txt', 'w', encoding='utf-8') as f:
 
 Then in the failure report, point the user at the saved file. This is the difference between "today's content is gone" and "today's content is on disk, please fix auth."
 
-### 6. Verify by triggering
+### 6. Tiered fallback: retry transient, then save locally on hard failure
+
+Step 4's "save before send" is the right pattern for content that takes a long time to generate. But most cron scripts already have the content in memory by the time they call `send_email()`, and saving-then-attempting-then-re-saving-on-failure is two writes of the same bytes. A tighter pattern that works well in practice:
+
+**a. Retry transient `SMTPServerDisconnected` once with a 3s backoff.** Most 535 / socket-teardown failures are NOT transient — but a real network blip looks identical to a credential failure from the script's side. One cheap retry distinguishes them and recovers the rare real-blip case without hiding real auth failures.
+
+```python
+import time
+last_err = None
+for attempt in range(2):
+    try:
+        with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT, timeout=15) as server:
+            server.login(SMTP_USER, SMTP_PASS)
+            server.sendmail(SMTP_USER, TO_EMAIL, msg.as_string())
+        return True, "发送成功"
+    except (smtplib.SMTPServerDisconnected, smtplib.SMTPException, OSError) as e:
+        last_err = e
+        if attempt == 0:
+            time.sleep(3)
+        continue
+```
+
+**b. On final failure, save to a dedicated outbox.** Don't reuse `~/.hermes/cron/output/<job_id>/` — that's the scheduler's log dir and gets confused with run records. Use `~/.hermes/cron/outbox/<platform>/` (one subdir per delivery platform: `toutiao/`, `wechat/`, `email/`):
+
+```python
+from pathlib import Path
+from datetime import datetime
+outbox = Path("/home/ubuntu/.hermes/cron/outbox/toutiao")
+outbox.mkdir(parents=True, exist_ok=True)
+ts = datetime.now().strftime("%Y%m%d_%H%M")
+fname = outbox / f"{ts}_{topic['direction']}.html"
+fname.write_text(full_html, encoding="utf-8")
+return False, f"{last_err} (重试2次仍失败，HTML已备份: {fname})"
+```
+
+**c. Tell the user where the backup is in the failure message.** The whole point is that today's content isn't lost while the credential gets fixed. Embed the absolute path in the script's stderr so the failure report can show "HTML saved to /home/ubuntu/.hermes/cron/outbox/toutiao/20260825_2031_亲戚恩怨.html" and the user can open it.
+
+**Working example**: `~/.hermes/cron/scripts/toutiao-article-daily.py::send_email()` after the 2026-08-25 fix — read it directly as the reference implementation.
+
+### 7. Verify by triggering
 
 ```bash
-cronjob(action='run', job_id='<id>')
+cronjob(action='run', job_id='<job_id>')
 # Wait a moment, then read the new log
 ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron/output/<job_id>/{}
 ```
@@ -241,6 +280,26 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   /Office365 adds a `5.7.606` error code you'll need to look up. Don't try
   to pattern-match across providers — read the full error string the first
   time.
+
+- **Save AFTER failure, not only BEFORE send.** The Step 4 pattern (write
+  HTML to disk before calling send_email) covers the "script crashes mid-
+  delivery" case, but the common SMTP failure is the script completing
+  cleanly with the article still in memory. A second backup at the catch-
+  block tail catches BOTH the "credential died" and "network blip" paths
+  without a wasted write on success. Combine: one retry on transient
+  `SMTPServerDisconnected` (3s backoff), then save to
+  `~/.hermes/cron/outbox/<platform>/` on final failure with the absolute
+  path embedded in the error message. See step 6 of the SMTP deep-dive for
+  the working template from `toutiao-article-daily.py`.
+
+- **Use a dedicated `outbox/` tree, not the scheduler's `output/` tree.**
+  `~/.hermes/cron/output/<job_id>/` is the scheduler's own log directory;
+  dropping backup artifacts there blurs "script ran" records with
+  "content the user can still read" records, and the auto-rotation / log
+  cleaners may eat your backups. Use `~/.hermes/cron/outbox/<platform>/`
+  with one subdir per delivery platform (`toutiao/`, `wechat/`,
+  `unified/`, `email/`) and a `README.md` in each explaining the most
+  recent outage + the user-facing fix (regenerate QQ auth code, etc.).
 
 - **Two-source-of-truth can both be stale.** When `config.yaml`'s `smtp_pass`
   and `~/.hermes/.env`'s `QQ_EMAIL_AUTH_CODE` were copied from the same QQ
