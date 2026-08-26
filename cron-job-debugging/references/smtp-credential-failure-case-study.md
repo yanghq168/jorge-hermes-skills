@@ -148,6 +148,21 @@ If you see "Connection unexpectedly closed" from `569545015@qq.com` SMTP, **do n
 
 The next cron run after the update will succeed. Do NOT apply this same code to `wechat-article-daily.py`, `unified-content-daily.py`, etc. proactively — they share the same credential and will fail identically, but the user only needs to fix it once in the YAML. Updating the outbox tree template per-script is fine (so each platform has its own `outbox/<platform>/README.md` with the current outage timestamp), but the auth fix is centralized.
 
+## Case D — Third recurrence, same week, outbox pattern validated (2026-08-26)
+
+`toutiao-article-daily.py` cron run at 20:30 produced the identical symptom (`❌ 发送失败：Connection unexpectedly closed`), on the identical auth code `iylylmwnitbbbebi`, with the identical `535 Login fail. Account is abnormal...` in the SMTP transcript. The skill's "do not re-diagnose" rule from Case C applied correctly — went straight to confirming the 535 pattern, identified the outbox backup as the recovery path, and reported both the user-facing fix and the saved artifact in one cycle.
+
+### What this case confirmed
+
+1. **The outbox tree pattern from Case C is doing its job.** Today's article (`/home/ubuntu/.hermes/cron/outbox/toutiao/20260826_2030_亲戚恩怨.html`, 27 KB) was preserved on disk despite the SMTP failure. The user has the content; only the delivery is broken. This is the difference between "another lost day" and "yet another backlog in the outbox."
+2. **Same content directory pattern across days.** The outbox now has `20260825_2031_亲戚恩怨.html` (Case C) and `20260826_2030_亲戚恩怨.html` (this case) — multiple runs of the same direction accumulate predictably. The `<direction>` suffix in the filename keeps them readable.
+3. **The diagnostic recipe in this skill SKILL.md §5 works as written.** Manual `socket`-level EHLO + AUTH LOGIN probe (the script's own `smtplib.SMTP_SSL` retries fail-fast with `Connection unexpectedly closed` because Python re-raises the post-535 socket teardown) reveals the 535 in one shot. No need for `debuglevel` plumbing — the raw transcript is enough.
+4. **Cross-script exposure is unchanged.** Every daily-content cron (`wechat-article-daily.py`, `unified-content-daily.py`, `xhs-travel-daily.py`, `xiaohongshu-travel-daily.py`, `xhs-escape-weekend.py`, `bithappy_email_pro.py`, `daily_report.py`) reads the same `config_loader.py::get_mail_config()` and would fail identically today. None of them has the Case C outbox fix yet — when the user regenerates the auth code, they'll all recover simultaneously. The follow-up work item remains: extract a shared `_email_helpers.py` so the retry+outbox+embedded-path pattern is applied uniformly, not just in `toutiao-article-daily.py`.
+
+### Why this case is worth logging separately
+
+Cases A and B documented the discovery. Case C documented the recurrence + the durable fix. Case D documents the second recurrence — enough data points now (3 failures in 4 days, same auth code) to confidently call this **a recurring-class signal, not a one-time expiry**. The skill's recommendation to extract `_email_helpers.py` becomes more urgent: every day without the shared helper is a day another cron silently drops its content into `/dev/null`.
+
 ### Same outbox pattern needed in other daily-content scripts
 
 Identical vulnerability exists in: `wechat-article-daily.py`, `unified-content-daily.py`, `xhs-travel-daily.py`, `xiaohongshu-travel-daily.py`, `xhs-escape-weekend.py`, `bithappy_email_pro.py`, `daily_report.py`. All use the same `config_loader.py::get_mail_config()` and the same fragile `try/except Exception` around `smtplib.SMTP_SSL.login()`. Apply the Case C fix (retry + outbox backup) to each — or refactor `send_email()` into a shared helper under `~/.hermes/cron/scripts/_email_helpers.py` that all of them import. The helper is the right answer if you expect this revocation pattern to keep recurring.
