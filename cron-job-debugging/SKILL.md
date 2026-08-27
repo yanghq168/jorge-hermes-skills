@@ -264,9 +264,11 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   reads `os.environ['QQ_EMAIL_AUTH_CODE']` will get an empty string in cron
   context, and your "I tested it manually and it worked" recollection is
   wrong because your shell *did* have the var set. Either bake the credential
-  into `~/.hermes/cron/config/config.yaml`, or `export` it at the top of
-  the script. See `references/smtp-credential-failure-case-study.md` for a
+  into `~/.hermes/cron/config/config.yaml`, or `export` it at the top of the
+  script. See `references/smtp-credential-failure-case-study.md` for a
   worked case study.
+
+- **Once `probe_smtp.py` confirms a known auth-revocation pattern, stop re-running the script.** The credential is binary (valid or revoked), not probabilistic — re-running the full content-generation + SMTP-failure cycle produces zero new information, just more identical `❌ 发送失败: Connection unexpectedly closed` output that consumes cron-output bandwidth. After the first confirm, switch immediately to user-report mode (point at the outbox backup, give the fix command). See Case E in `references/smtp-credential-failure-case-study.md`.
 
 - **A failed email cron loses today's content unless you save it locally.**
   The script's `try/except` around `sendmail` swallows the error and exits

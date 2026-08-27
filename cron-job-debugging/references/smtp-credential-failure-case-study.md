@@ -166,3 +166,28 @@ Cases A and B documented the discovery. Case C documented the recurrence + the d
 ### Same outbox pattern needed in other daily-content scripts
 
 Identical vulnerability exists in: `wechat-article-daily.py`, `unified-content-daily.py`, `xhs-travel-daily.py`, `xiaohongshu-travel-daily.py`, `xhs-escape-weekend.py`, `bithappy_email_pro.py`, `daily_report.py`. All use the same `config_loader.py::get_mail_config()` and the same fragile `try/except Exception` around `smtplib.SMTP_SSL.login()`. Apply the Case C fix (retry + outbox backup) to each — or refactor `send_email()` into a shared helper under `~/.hermes/cron/scripts/_email_helpers.py` that all of them import. The helper is the right answer if you expect this revocation pattern to keep recurring.
+
+## Case E — 4th recurrence this week, auth-code revocation is now the steady state (2026-08-27)
+
+`toutiao-article-daily.py` cron run at 20:30 produced the identical symptom (`❌ 发送失败：Connection unexpectedly closed`), on the identical auth code, with the identical EHLO-clean-then-AUTH-dies pattern. **5 failures in 5 days** — this is no longer a "recurring-class signal", it is the steady state of this deployment's QQ auth code.
+
+### What this case confirmed
+
+1. **The "do not re-diagnose" rule from Case C was followed correctly** — went straight to `scripts/probe_smtp.py`-equivalent (`smtplib.SMTP_SSL(...).login(...)` with debuglevel) and confirmed the silent-reject pattern in one shot, no time lost on network/firewall debugging.
+2. **The Case C outbox pattern worked as designed.** Four HTMLs were preserved across this session: `20260827_2030_赡养义务.html`, `20260827_2030_亲戚恩怨.html`, `20260827_2031_亲戚恩怨.html`, `20260827_2031_房产纠纷.html` (note: each script invocation randomizes the topic direction, so multiple `亲戚恩怨` filenames from one session — the `<direction>` suffix disambiguates correctly). All ~27 KB each, fully readable.
+3. **The cron-output → user-message pipeline is the actual delivery surface for diagnostics when email fails.** The script's `❌ 发送失败` would normally email the user, but since email is broken, the ONLY thing reaching the user is the cron output captured in this conversation. This means: when crafting the failure report, don't assume the email channel works for the response — the report IS the email, and it must contain the outbox path + the user-facing fix command verbatim.
+
+### What was inefficient (lesson for future sessions)
+
+Re-running `python3 toutiao-article-daily.py` twice for "confirmation" was wasted work. The Case A diagnostic has now been performed 4 times and the answer has not changed once: **EHLO succeeds, AUTH dies silently = QQ has revoked the auth code again**. After the first probe_smtp confirms that pattern, the right next move is:
+- Skip the second/third script re-runs (they will all fail identically — the credential is binary, not probabilistic).
+- Report the failure to the user with the outbox path + the fix command, in the SAME response as the first probe.
+- Do not waste cron-output bandwidth on confirmation re-runs.
+
+**Decision rule going forward:** if `probe_smtp.py` confirms Case B silent-reject on an auth code we've seen before, the diagnostic is done — switch immediately to "tell the user + point at outbox" without re-attempting delivery. Each re-run wastes a cron-output cycle and produces no new information.
+
+### Actionable follow-up (priority: HIGH — overdue by ~4 cron cycles)
+
+Extract `~/.hermes/cron/scripts/_email_helpers.py` with `send_with_retry_and_outbox(html, plain, subject, platform)` and migrate every daily-content script to it. Each additional day risks a different platform losing its content to the same auth-revocation failure. The shared helper is ~80 lines; the migration is mechanical (replace each script's `send_email()` body with one call). Until that lands, each new failure of `wechat-article-daily.py` / `unified-content-daily.py` / etc. will lose its article silently instead of saving to outbox.
+
+A second option worth proposing to the user when this recurs: **migrate the QQ Mail SMTP channel to Resend / SMTP2GO / SendGrid**. A third-party transactional mail relay with a static API key (not an interactive authorization code) does not get revoked by IP-based anti-spam. Free tier on Resend (3000 emails/month) covers all the daily-content crons combined, and the API key never rotates unless you rotate it. This trades a recurring weekly one-line fix for a one-time ~30-line migration.
