@@ -294,6 +294,27 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   path embedded in the error message. See step 6 of the SMTP deep-dive for
   the working template from `toutiao-article-daily.py`.
 
+- **The failure report must NOT depend on the broken channel.** When the
+  cron is failing because of email, the failure report cannot be an email.
+  Always check the cron's `deliver` config: if it's `deliver: origin` to
+  Feishu/Lark/Slack, the agent's final response auto-delivers there and
+  the failure report can ride that channel safely. If no `deliver` is
+  configured, write the failure report into
+  `~/.hermes/cron/outbox/<platform>/README.md` alongside the HTML backups
+  so the user finds it when they next inspect the outbox. See Case F in
+  `references/smtp-credential-failure-case-study.md` for the canonical
+  report template.
+
+- **Escalate to explicit user-facing fix instructions after the 3rd
+  consecutive identical failure.** The first 1–2 occurrences: confirm with
+  `probe_smtp.py`, save the outbox backup, and report minimally. From the
+  3rd occurrence onward: include the verbatim QQ-web-UI fix steps
+  (mail.qq.com → 设置 → 账户 → regenerate SMTP authorization code →
+  update `~/.hermes/cron/config/config.yaml`) in the report, plus the
+  cumulative failure count. By day 5+, the report should read like a
+  runbook entry, not a passive error message — the user has likely been
+  ignoring the first two.
+
 - **Use a dedicated `outbox/` tree, not the scheduler's `output/` tree.**
   `~/.hermes/cron/output/<job_id>/` is the scheduler's own log directory;
   dropping backup artifacts there blurs "script ran" records with

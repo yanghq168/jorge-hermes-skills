@@ -191,3 +191,60 @@ Re-running `python3 toutiao-article-daily.py` twice for "confirmation" was waste
 Extract `~/.hermes/cron/scripts/_email_helpers.py` with `send_with_retry_and_outbox(html, plain, subject, platform)` and migrate every daily-content script to it. Each additional day risks a different platform losing its content to the same auth-revocation failure. The shared helper is ~80 lines; the migration is mechanical (replace each script's `send_email()` body with one call). Until that lands, each new failure of `wechat-article-daily.py` / `unified-content-daily.py` / etc. will lose its article silently instead of saving to outbox.
 
 A second option worth proposing to the user when this recurs: **migrate the QQ Mail SMTP channel to Resend / SMTP2GO / SendGrid**. A third-party transactional mail relay with a static API key (not an interactive authorization code) does not get revoked by IP-based anti-spam. Free tier on Resend (3000 emails/month) covers all the daily-content crons combined, and the API key never rotates unless you rotate it. This trades a recurring weekly one-line fix for a one-time ~30-line migration.
+
+## Case F — Same auth code, same script, 6th consecutive day: the diagnostic loop now runs in one step (2026-08-28)
+
+The same `toutiao-article-daily.py` cron (20:30 daily) failed for the 6th consecutive night with the identical `Connection unexpectedly closed` symptom on the identical `iylylmwnitbbbebi` auth code. Documenting because by this point the workflow is fully internalized and worth recording as the canonical "this is what it looks like when you know what to do" version of the recipe.
+
+### What the canonical 30-second diagnostic now looks like
+
+```bash
+cd ~/.hermes/cron/scripts
+python3 probe_smtp.py
+```
+
+Output confirms Case A/B in the `reply:` lines: `535 Login fail. Account is abnormal, password is incorrect`. Exit code 0 = auth dead. Total wall time: under 5 seconds.
+
+```bash
+ls -t ~/.hermes/cron/outbox/toutiao/ | head -3
+```
+
+Confirms the Case C outbox pattern captured today's article (`20260828_2030_房产纠纷.html`, 27 KB) — content preserved on disk despite the SMTP failure.
+
+That's it. No manual `debuglevel=1` recipe, no `socket.setdefaulttimeout()`, no per-case conditional reasoning. The helper from Case A consolidated the diagnosis, the outbox pattern from Case C preserved the work product, and the report below is mechanical.
+
+### The report that goes out (and where it goes)
+
+When the cron is configured with `deliver: origin` (e.g. Feishu topic), the agent's final response IS the user-facing report. **No additional channel is needed** — the diagnostic conclusion, the outbox path, and the fix command all ride the same auto-delivery path that the cron already uses for success reports. The structure that worked:
+
+```
+📰 头条号日报｜2026-08-28（周五）20:30
+🏠 围炉家常话（头条）· 长文 +2条微头条 已生成
+[long article title + micro-article list]
+
+⚠️ 发送失败（重要）
+- 收件人 569545015@qq.com 未收到邮件
+- HTML已本地备份：/home/ubuntu/.hermes/cron/outbox/toutiao/20260828_2030_房产纠纷.html
+- 根因：QQ邮箱SMTP授权码 iylylmwnitbbbebi 已失效（QQ返回 535 Login fail）
+- 已连续失败 6天（8月23日~28日）
+
+🔧 修复步骤（一次性，3分钟搞定）
+1. 登录 https://mail.qq.com → 设置 → 账户 → POP3/IMAP/SMTP/Exchange/CardDAV/CalDAV服务
+2. 关闭再重新开启「SMTP服务」，生成新的授权码
+3. 更新 /home/ubuntu/.hermes/cron/config/config.yaml 的 mail.smtp_pass 字段
+4. 下次20:30 cron自动跑即可恢复推送
+```
+
+**Key invariant:** the report must reach the user *somehow* even when email is broken. `deliver=origin` to Feishu (or whatever target the cron is configured for) is the answer for content-platform crons; for crons with no `deliver` configured, the fallback is writing the same report to `~/.hermes/cron/outbox/<platform>/README.md` (alongside the HTML backups) so the user finds it when they next check the outbox. **Do not assume the email channel works for your response** — when email is the broken channel, the failure report must NOT also be an email.
+
+### What this case added to the skill
+
+1. **`scripts/probe_smtp.py` is the canonical entry point.** Don't re-type the `debuglevel=1` recipe — invoke the helper. It auto-detects credentials from `~/.hermes/cron/config/config.yaml` + `~/.hermes/.env`, tries 465-SSL by default, optionally tries 587-STARTTLS with `--starttls`, and prints the right case letter. The recipe in §5 of SKILL.md is now "use the helper"; the manual steps are documented in this case study for readers who want to understand the mechanism.
+
+2. **`config_loader.py` import path is verified working.** Scripts in `~/.hermes/cron/scripts/` doing `from config_loader import get_mail_config` work without `sys.path` manipulation because the scheduler runs them with `cwd` set to the scripts directory. If you ever see `ModuleNotFoundError: No module named 'config_loader'`, that's a different problem (likely the cron was triggered from a different cwd); the `import` pattern itself is sound.
+
+3. **The 3-failure threshold is the moment to escalate to user.** Cases A→E trajectory (1, 2, 4, 4, 5 consecutive failures) showed the agent correctly held off on proactive notification for the first ~5 days, but by day 6 the right move is **explicit user-facing fix instructions in the report**, not just "diagnosis complete, content preserved in outbox". Decision rule: after the **3rd consecutive identical failure**, start including the verbatim QQ-web-UI fix steps in the report. By day 5+, also note the cumulative count so the user understands this isn't a one-off.
+
+4. **The `outbox/<platform>/README.md` convention is the durable knowledge store.** Each recurring failure updates the README with the new outage timestamp and the current state of the fix — when the user eventually fixes the auth code, the README becomes a complete outage log that survives across cron-job-script edits and cron-config changes. Format: a single section per outage, with date, symptom, root cause, fix command, and the list of affected scripts that share the credential.
+
+5. **Don't keep running probe_smtp.py just to confirm.** Once the first probe_smtp run on this auth code returns Case A or Case B, the diagnostic is done. Re-running produces identical output and wastes cron-output bandwidth. Switch to user-report mode immediately.
