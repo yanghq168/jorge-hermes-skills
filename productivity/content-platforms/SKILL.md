@@ -295,6 +295,10 @@ for item in items:
 
 - **f-string反斜杠**：Python 3.12禁止在f-string内使用反斜杠，先拼接中间变量再塞入f-string
 - **邮件发送失败**：先检查 `python3 ~/.hermes/cron/scripts/<script>.py` 是否能单独运行成功；若端口通但 AUTH 失败（535 Login fail），可能是腾讯云 IP 被 QQ 邮箱拒绝，此时内容改由 Lark `deliver=origin` 直推，不再依赖邮件
+  - **⚠️ 邮件失败时的内容保护（重要）**：当 SMTP 授权码失效时（QQ 静默拒绝，错误为 `Connection unexpectedly closed`/`SMTPServerDisconnected`），脚本会在 `~/.hermes/cron/outbox/<platform>/` 目录下自动备份 HTML——这是 **content 救命兜底**，不要清空 outbox/，那是用户唯一的内容副本
+  - **当 outbox 连续累积 ≥3 天的 HTML 时**：QQ SMTP 授权码已彻底失效，直接告诉用户去 `mail.qq.com → 设置 → 账户` 重新生成授权码，而不是反复诊断网络。完整诊断流程见 `cron-job-debugging` 技能的 Case A-G（含探针脚本 `scripts/probe_smtp.py`）
+  - **导入脚本而不触发 SMTP**（用于在 cron 跑挂时手动验证内容生成）：用 `importlib.util.spec_from_file_location` 加载脚本，stub `send_email` 后调用 `generate_article()` 和 `generate_micro_articles()` 直接拿到 HTML，跳过邮件。详见 `cron-job-debugging` Case G
+  - **修复 QQ 授权码后的清理**：`mkdir -p ~/.hermes/cron/outbox/<platform>/<年月>_archive` 把旧的失败 HTML 归档，并在 `outbox/<platform>/README.md` 追加 outage log
 - **cron job 内调用 hermes send 发到同一目标会被拦截**：当 `deliver=origin` 把 cron 输出推到 Lark DM/话题时，cron job 里**不要再调用 `hermes send --to feishu:<当前chat_id>`**——系统会返回：
   - bare chat_id（`feishu:oc_xxx`）→ `Skipped send_message to ... This cron job will already auto-deliver its final response to that same target. Put the intended user-facing content in your final response instead`
   - 带话题（`feishu:oc_xxx:omt_xxx` 或 `feishu:oc_xxx / topic omt_xxx`）→ `[99992402] field validation failed`
