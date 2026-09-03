@@ -315,6 +315,21 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   runbook entry, not a passive error message — the user has likely been
   ignoring the first two.
 
+- **At 10+ consecutive identical failures, stop running `probe_smtp.py`.**
+  The credential state hasn't changed in a week; running the probe again
+  consumes tokens to confirm what `~/.hermes/cron/outbox/<platform>/README.md`
+  already says. Skip straight to: outbox path + auth code location + the
+  one-line fix. The user knows — they just haven't done it. Treat it like
+  a runbook dispatch, not an investigation. See Case H for the canonical
+  terse report template.
+
+- **`crontab.txt` and Hermes `jobs.json` are independent schedulers.** Some
+  deployments run the same script under both classic cron (`crontab -l` →
+  `~/.hermes/cron/crontab.txt`) AND the Hermes cron scheduler (`jobs.json`).
+  When debugging a "silent" cron, check both — `jobs.json` may show the job
+  exists but not actually be the one firing, or vice versa. The log dir
+  `~/.hermes/cron/output/<job_id>/` only exists for Hermes-scheduler runs.
+
 - **Use a dedicated `outbox/` tree, not the scheduler's `output/` tree.**
   `~/.hermes/cron/output/<job_id>/` is the scheduler's own log directory;
   dropping backup artifacts there blurs "script ran" records with
@@ -337,6 +352,10 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   all — `debuglevel=1` shows a clean EHLO then a bare `SMTPServerDisconnected`.
   Don't conclude "network problem" just because the 535 is missing.
   See the "QQ Mail silent-reject variant" callout in the SMTP deep-dive.
+
+## Cross-reference: known recurring outage
+
+For the `toutiao-article-daily.py` QQ SMTP outage (10+ nights as of 2026-09-03, identical `Connection unexpectedly closed` every night, auth code `iylylmwnitbbbebi` revoked), see `references/toutiao-cron-outage-2026-08.md`. It contains the verbatim QQ-web-UI fix steps, the outbox cleanup recipe, and the terse-report pattern from Case H. **If you see a `Connection unexpectedly closed` on `smtp.qq.com:465` for `569545015@qq.com`, read that file first — the credential is almost certainly already revoked and the outbox already has today's content.**
 
 ## Case G — Agent-mode cron variant: 7th consecutive failure, outbox accumulation, importlib bypass (2026-09-02)
 
@@ -412,7 +431,34 @@ ls -1 ~/.hermes/cron/outbox/toutiao/*.html | wc -l
 # If ≥3, switch immediately to user-fix mode per the Case F decision rule.
 ```
 
-When the cron actually succeeds, the outbox stops growing (the script's failure path is what writes there). So a growing outbox = ongoing outage; a flat outbox = outage resolved.
+## Case H — 10th consecutive identical SMTP failure: terse runbook dispatch mode (2026-09-03)
+
+The `toutiao-article-daily.py` cron failed for the 10th consecutive night (since 2026-08-25). Same auth code (`iylylmwnitbbbebi`), same `Connection unexpectedly closed`, same `535 Login fail` in the SMTP transcript. Every diagnostic step from Cases A–G has been confirmed multiple times. New lesson this cycle: **the report should shrink, not grow, as the failure count climbs.**
+
+### What NOT to do at failure N≥10
+
+- Re-run `probe_smtp.py` — confirms what we already know, burns tokens.
+- Re-explain what `535 Login fail` means — user has seen it 9 times.
+- Re-list the full SMTP deep-dive steps — they're in this skill, the user knows.
+- Suggest "try port 587 instead" — already covered in Case A; the credential is binary dead, transport won't help.
+- Paste the full article HTML inline — the outbox already has it.
+
+### What to do at failure N≥10
+
+Compress the failure report to four lines:
+
+```
+📋 头条文章日报（N天连续失败）
+✅ 内容生成成功 → outbox/toutiao/20260903_2030_赡养义务.html
+❌ 邮件未送达：QQ SMTP 535 Login fail（同 iylylmwnitbbbebi 第N天）
+🔧 修复：mail.qq.com → 账户 → SMTP服务 → 重新生成授权码 → 写回 ~/.hermes/cron/config/config.yaml
+```
+
+That's it. No probe, no transcript dump, no alternative-transport suggestion. The user knows what to do; they're either (a) traveling / away from QQ web UI, (b) deferred it as low priority, or (c) genuinely forgot. The terse reminder with a concrete fix command is the highest-value response.
+
+### Outbox count = silent outage clock
+
+`ls ~/.hermes/cron/outbox/<platform>/ | grep -c '\.html$'` is now the canonical "how broken is SMTP right now" indicator. The count grows by 1 per failed night, freezes when fixed. If the count is ≥7 and the README.md has no "Outage resolved" entry, the outage is live. Use this to skip Step 1 of the diagnostic loop entirely — go straight to report.
 
 ## Diagnostic commands cheatsheet
 
