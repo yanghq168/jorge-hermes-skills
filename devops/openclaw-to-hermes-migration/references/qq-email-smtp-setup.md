@@ -66,7 +66,41 @@ print("Email sent successfully")
 | `Authentication failed` | Using QQ password instead of auth code | Use the 16-char authorization code |
 | `Connection refused` on port 587 | QQ requires SSL on 465 | Use port 465 with `SMTP_SSL` |
 | `smtplib.SMTPAuthenticationError` | Auth code expired or service not enabled | Re-enable SMTP in QQ Mail settings |
+| `SMTPServerDisconnected: Connection unexpectedly closed` | QQ SMTP rate-limiting or anti-abuse triggered on stale auth code | Re-generate auth code at mail.qq.com → 设置 → 账户 → POP3/IMAP/SMTP服务. If many cron jobs fail simultaneously, see "Fleet-wide failure diagnostic" below. |
 | Chinese characters garbled | Missing charset | Use `MIMEText(html, 'html', 'utf-8')` |
+
+## Fleet-wide Failure Diagnostic
+
+When a cron mail job suddenly starts failing, the error is almost always **shared infrastructure**, not the script. QQ auth codes can expire or get flagged by QQ's anti-abuse system without warning — this breaks every cron job that sends through that account at once.
+
+**Diagnostic recipe (1 minute):**
+```bash
+# 1. Reproduce the failure outside the script
+python3 -c "
+import smtplib
+with smtplib.SMTP_SSL('smtp.qq.com', 465, timeout=15) as s:
+    s.login('YOUR_USER@qq.com', 'YOUR_AUTH_CODE')
+    print('OK')
+"
+
+# 2. Check sibling cron logs to see if it's fleet-wide
+tail -10 ~/.hermes/cron/logs/wechat-article-daily.log
+tail -10 ~/.hermes/cron/logs/bithappy-email.log
+tail -10 ~/.hermes/cron/logs/daily-report.log
+tail -10 ~/.hermes/cron/logs/toutiao-article-daily.log
+```
+
+If **all** logs show the same `Connection unexpectedly closed` / `SMTPServerDisconnected`:
+- It's the auth code, not the new job. Don't waste time debugging the new script.
+- Regenerate at mail.qq.com → 设置 → 账户 → POP3/IMAP/SMTP/Exchange/CardDAV/CalDAV服务 → "生成授权码"
+- Update `~/.hermes/cron/config/config.yaml` `mail.smtp_pass` (single source of truth used by `config_loader.py`)
+- Re-test, then re-run failed jobs manually (HTML backups in `~/.hermes/cron/outbox/<job>/`)
+
+If **only the new job's log** fails: it's the script. Check `From` header format, charset, retry logic.
+
+**Why auth codes expire silently:** QQ rotates auth codes when the account has been idle, when security rules change, or after long periods without the user logging into mail.qq.com. There's no advance warning — the SMTP server just starts closing the connection mid-handshake.
+
+**Backup safety net:** A well-built cron mail script writes the full HTML to `~/.hermes/cron/outbox/<job>/` when SMTP fails after retries. When you regenerate the auth code, you can re-send from the outbox directory without re-running the generator.
 
 ## Multiple Sender Names
 

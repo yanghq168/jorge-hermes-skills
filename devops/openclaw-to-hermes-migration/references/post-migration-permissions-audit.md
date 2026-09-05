@@ -145,3 +145,27 @@ After audit, present findings in this format:
 3. **Missing remote server references in HTML/dashboard files.** `dashboard.html` may contain IP addresses not found in `.py` files.
 
 4. **Not verifying after migration.** Always test: send a test email, `ssh` to remote, `git push` to GitHub.
+
+5. **Forgetting that credentials expire on a schedule, not just at migration.** The initial audit passes on day 1, then 2-6 months later every cron mail job starts failing simultaneously because the QQ auth code rotated. This is a recurring maintenance task, not a one-time fix. See `qq-email-smtp-setup.md` → "Fleet-wide Failure Diagnostic" for the triage recipe when multiple cron jobs fail at once.
+
+## Ongoing Credential Rotation
+
+The migration audit only covers the day-1 state. Credentials have a lifecycle independent of code:
+
+| Credential | Typical lifespan | Renewal signal | Where to renew |
+|-----------|------------------|---------------|---------------|
+| QQ Mail SMTP auth code | 2-6 months (or until idle) | All cron mail jobs start failing simultaneously | mail.qq.com → 设置 → 账户 → POP3/IMAP/SMTP → 生成授权码 |
+| QQ Mail third-party login password | Tied to QQ account security | "Login failed" errors | mail.qq.com → 设置 → 账户 |
+| GitHub SSH key | Until rotated manually | `git push` fails with "Permission denied" | New key via `gh ssh-key add` |
+| GitHub PAT (Classic) | Until manually revoked or 1 year | `gh auth status` shows expired | github.com → Settings → Developer settings → PAT |
+| Feishu webhook | Until manually revoked | Webhook returns 400/403 | Feishu group → 设置 → 群机器人 |
+| Remote server password | Until user changes it | SSH "Permission denied" | Out of band — ask user |
+
+**Operational pattern:** When you notice a new cron job failing on its first run, do NOT assume the new script is broken. Check 1-2 sibling logs first. If they show the same failure mode, the shared credential has rotated — fix the config once, all jobs recover.
+
+**Where credentials live in this workspace:**
+- Single source of truth: `~/.hermes/cron/config/config.yaml`
+- Loaded by `~/.hermes/cron/scripts/config_loader.py` (used by every cron script via `get_mail_config()`)
+- A credential change in this one file propagates to every mail-sending cron job
+
+**Don't scatter credentials.** If a new cron script hardcodes a different auth code, you've broken the single-source-of-truth pattern and future rotations require touching multiple files.
