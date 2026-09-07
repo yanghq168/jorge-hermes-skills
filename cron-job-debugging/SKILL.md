@@ -1,7 +1,7 @@
 ---
 name: cron-job-debugging
 description: "Debug silently-failing Hermes cron jobs (no_agent script mode, scheduled prompt jobs, chained jobs). Diagnose 'Script not found', silent no-op, exit-code-without-output, path-resolution failures, AND credential/SMTP delivery failures by reading scheduler output logs in ~/.hermes/cron/output/. Applies the script-path resolution rule, the SMTP-credential deep-dive, and the local-fallback save pattern."
-version: 1.0.0
+version: 1.1.0
 author: Hermes Agent
 license: MIT
 platforms: [linux, macos]
@@ -133,12 +133,35 @@ with smtplib.SMTP_SSL('<smtp_server>', 465, timeout=30) as s:
 
 Look at the `reply:` lines. The smoking gun is one of:
 
-- `535 Login fail. Account is abnormal, service is not open, password is incorrect, login frequency limited...` — **auth code/password is wrong, expired, or service not enabled**. Cannot be fixed remotely; user must log into the mail provider's web UI and regenerate.
+- `535 Login fail. Account is abnormal, service is not open, password is incorrect, login frequency limited...` — **auth code/password is wrong, expired, or service not enabled**. Cannot be fixed remotely; user must log into the mail provider's web UI and regenerate. This is the **expected default for QQ Mail** when an SMTP authorization code has been revoked — see the dedicated callout below.
 - `550 Mailbox not found` / `User not found` — recipient address wrong, or sender not authorized to send as that address.
 - `554 DT:SPM ...` (QQ specific) — message body rejected as spam; shorten subject, remove URL shorteners, or fix plain-text/HTML mismatch.
 - `454 4.7.0 Too many login attempts` — rate-limited; back off and try later, or stop running the script from multiple places.
 
-**⚠️ QQ Mail silent-reject variant (no 535 in transcript):** When QQ's anti-spam system has aggressively revoked an auth code, the server may close the TLS socket IMMEDIATELY after `AUTH` with NO `reply:` line at all — `debuglevel=1` will show a clean `EHLO 250` then a bare `SMTPServerDisconnected` with no `535` between them. This is indistinguishable from a network drop except by the pattern: SSL handshake + EHLO succeed + AUTH never gets a reply → credential revoked by aggressive anti-spam (not just expired). Same user fix (regenerate in QQ web UI), but the diagnostic signature is different — don't conclude "network issue" just because the 535 line is missing. Confirm by trying port 587 STARTTLS as well: if EHLO succeeds there too and AUTH dies silently, it's the same silent-reject. If port 587 hangs at connect, you have a real firewall/network problem instead.
+**Most reliable probe — manual AUTH LOGIN + `getreply()` per step.** When `debuglevel=1` buries the 535 inside AUTH retries, drive the SMTP session yourself so each protocol step produces its own line:
+
+```bash
+python3 -c "
+import smtplib, base64
+s = smtplib.SMTP_SSL('smtp.qq.com', 465, timeout=15)
+s.ehlo()
+s.send(b'AUTH LOGIN\r\n'); code, msg = s.getreply(); print(f'AUTH LOGIN  -> {code} {msg!r}')
+s.send(base64.b64encode(b'USER') + b'\r\n'); code, msg = s.getreply(); print(f'username   -> {code} {msg!r}')
+s.send(base64.b64encode(b'PASS') + b'\r\n'); code, msg = s.getreply(); print(f'password   -> {code} {msg!r}')
+"
+```
+
+On this deployment with a revoked auth code, the third `getreply()` prints:
+
+```
+password -> 535 b'Login fail. Account is abnormal, service is not open, password is incorrect, login frequency limited, or system is busy. ...'
+```
+
+Always deterministic. No scrolling past fast output, no second AUTH retry muddying the transcript. See Case I for the full transcript + the AUTH-recipe patch history.
+
+**⚠️ QQ Mail default failure shape (Case A — explicit 535):** For this QQ deployment, the most common signature when an SMTP authorization code has been revoked is a **visible `535 Login fail. Account is abnormal, service is not open, password is incorrect, login frequency limited, or system is busy.` line in the SMTP transcript** between the AUTH command and the bare `SMTPServerDisconnected`. `smtplib.SMTP.debuglevel = 1` will usually surface it, but `smtplib` retries AUTH LOGIN after AUTH PLAIN fails with 535, and the second AUTH closes abruptly — the 535 can scroll past fast. **More reliable recipe — do AUTH LOGIN manually and call `getreply()` after each step so the 535 is its own line** (recipe above).
+
+**Rarer edge case — QQ silent-reject (Case B, no 535 in transcript):** When QQ's anti-spam system has *aggressively* revoked an auth code, the server may close the TLS socket IMMEDIATELY after `AUTH` with NO `reply:` line at all — `debuglevel=1` will show a clean `EHLO 250` then a bare `SMTPServerDisconnected` with no `535` between them. This is indistinguishable from a network drop except by the pattern: SSL handshake + EHLO succeed + AUTH never gets a reply → credential revoked by aggressive anti-spam (not just expired). Same user fix (regenerate in QQ web UI), but the diagnostic signature is different — don't conclude "network issue" just because the 535 line is missing. Confirm by trying port 587 STARTTLS as well: if EHLO succeeds there too and AUTH dies silently, it's the same silent-reject. If port 587 hangs at connect, you have a real firewall/network problem instead. The manual AUTH recipe above also makes this case unambiguous — the third `getreply()` returns `(0, b'')` or raises before printing anything if the server tore down the socket.
 
 **Faster path — run `scripts/probe_smtp.py`** instead of retyping the debuglevel recipe. It auto-detects which credential sources this Hermes deployment uses (`config.yaml` + `~/.hermes/.env`), runs both 465-SSL and 587-STARTTLS probes, and reports which of the three failure modes you're in: 535-in-transcript (Case A), no-reply-silent-reject (Case B), or connect-time failure (Case C). Exit 0 = auth dead, exit 1 = real network problem. See `references/smtp-credential-failure-case-study.md` for the full Case B transcript.
 
@@ -351,7 +374,18 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   code may close the TLS socket right after `AUTH` with no `reply:` line at
   all — `debuglevel=1` shows a clean EHLO then a bare `SMTPServerDisconnected`.
   Don't conclude "network problem" just because the 535 is missing.
-  See the "QQ Mail silent-reject variant" callout in the SMTP deep-dive.
+  See the "Rarer edge case — QQ silent-reject (Case B)" callout in §5.
+
+- **Manual AUTH LOGIN + `getreply()` is more reliable than `debuglevel=1`.**
+  For QQ specifically, the default revocation signature (Case A) is a visible
+  `535 Login fail. Account is abnormal...` line — but `debuglevel=1` can
+  scroll past it because `smtplib` retries with AUTH LOGIN after AUTH PLAIN
+  fails, and the second AUTH closes abruptly. Driving the SMTP session
+  yourself with `server.send(b"AUTH LOGIN\r\n"); server.getreply()` per step
+  prints each protocol reply on its own line — the 535 is deterministic.
+  Prefer the manual recipe for terminal-typed probes, or when you suspect
+  smtplib's AUTH retry is hiding the actual error. See Case I for the full
+  transcript.
 
 ## Cross-reference: known recurring outage
 
@@ -459,6 +493,69 @@ That's it. No probe, no transcript dump, no alternative-transport suggestion. Th
 ### Outbox count = silent outage clock
 
 `ls ~/.hermes/cron/outbox/<platform>/ | grep -c '\.html$'` is now the canonical "how broken is SMTP right now" indicator. The count grows by 1 per failed night, freezes when fixed. If the count is ≥7 and the README.md has no "Outage resolved" entry, the outage is live. Use this to skip Step 1 of the diagnostic loop entirely — go straight to report.
+
+## Case I — 14th consecutive identical SMTP failure: low-level AUTH LOGIN probe reveals explicit 535 (2026-09-07)
+
+The `toutiao-article-daily.py` cron failed for the **14th consecutive night** (since 2026-08-25). Same auth code, same symptom, same Case H terse-report pattern applied. What was genuinely new this cycle was a **cleaner diagnostic recipe** that surfaces the 535 more reliably than `smtplib.SMTP.debuglevel = 1`.
+
+### The probe recipe that always surfaces the 535
+
+`debuglevel=1` works most of the time but has a known failure mode (Case B silent-reject) where the server tears down the TLS socket mid-AUTH with **no `reply:` line printed**, and you get a bare `SMTPServerDisconnected`. When the server DOES send the 535 reply (the common case for this QQ deployment), `debuglevel=1` sometimes buries it inside the AUTH PLAIN framing because Python retries with AUTH LOGIN after the first 535 — the second AUTH closes abruptly and your terminal scrolls past the actual rejection.
+
+A **deterministic** recipe: do AUTH LOGIN yourself and call `getreply()` after each step. The 535 always shows up as its own line:
+
+```python
+import smtplib, base64
+server = smtplib.SMTP_SSL('smtp.qq.com', 465, timeout=15)
+server.ehlo()
+server.send(b"AUTH LOGIN\r\n")
+code, msg = server.getreply()
+assert code == 334, f"unexpected: {code} {msg!r}"
+server.send(base64.b64encode(b'569545015@qq.com') + b'\r\n')
+code, msg = server.getreply()
+assert code == 334, f"unexpected: {code} {msg!r}"
+server.send(base64.b64encode(b'iylylmwnitbbbebi') + b'\r\n')
+code, msg = server.getreply()
+print(f"FINAL: {code} {msg!r}")
+# On this deployment prints: FINAL: 535 b'Login fail. Account is abnormal, ...'
+```
+
+What came out this session (2026-09-07):
+
+```
+EHLO: 250: b'newxmesmtplogicsvrszb51-0.qq.com\nPIPELINING\n... AUTH LOGIN PLAIN XOAUTH XOAUTH2\n...'
+AUTH LOGIN -> 334: b'VXNlcm5hbWU6'                    # base64("Username:")
+username -> 334: b'UGFzc3dvcmQ6'                       # base64("Password:")
+password -> 535: b'Login fail. Account is abnormal, service is not open,
+                  password is incorrect, login frequency limited, or system is busy.
+                  More information at https://help.mail.qq.com/detail/108/1023'
+```
+
+This is the **canonical 535-in-transcript signature** (Case A), NOT the silent-close variant (Case B). Important distinction: the silent-close variant is rare for this deployment; the explicit-535 variant is the norm. The current skill's "QQ silent-reject variant" callout in §5 over-emphasizes the rare case — future sessions may waste time looking for "no reply line" patterns that aren't there.
+
+### Decision rule refinement
+
+| Transcript signature | Mode | Frequency on this deployment |
+|---|---|---|
+| EHLO 250 → AUTH 334 → AUTH 334 → **535 Login fail** (explicit) | Case A — credential revoked, polite SMTP reply | **Common** (this session, 2026-08-23, Case A) |
+| EHLO 250 → AUTH... → bare `SMTPServerDisconnected` (no `reply:` line) | Case B — credential revoked, aggressive anti-spam | Rare (Case B 2026-08-24 only) |
+| Connect-time failure (timeout / ConnectionRefusedError / SSLError) | Case C — real network/firewall | Rare |
+
+**For this QQ deployment specifically, expect Case A — the explicit 535.** The Case B silent-reject warning still applies (don't dismiss it as "network" if you see it), but the default mental model should be "expect a 535 line in the transcript; the bug is the auth code, not the network".
+
+### Outbox accumulation: 27 HTML files at failure N=14
+
+`~/.hermes/cron/outbox/toutiao/` now contains 27 HTML files (was 17 at Case H, +10 across Cases I + intervening runs that hit the same outage). At ~27 KB each, the cumulative on-disk size is 764 KB. **This is correct behavior** — every night's content is preserved.
+
+The `outbox/toutiao/README.md` was extended with a "## 2026-09-07（持续中 — 第14天）" entry following the Case C/G convention. The README now reads as a cumulative outage log: 2026-08-25 (initial), 2026-09-07 (still ongoing). Future sessions checking this directory will see the live outage timestamp and skip the diagnostic loop entirely.
+
+### Cross-script exposure unchanged
+
+Every daily-content cron in `~/.hermes/cron/scripts/` shares the same `config_loader.get_mail_config()` and would fail identically today: `wechat-article-daily.py`, `unified-content-daily.py`, `xhs-travel-daily.py`, `xiaohongshu-travel-daily.py`, `xhs-escape-weekend.py`, `bithappy_email_pro.py`. None has the outbox-fallback fix yet. The Case C follow-up (extract `_email_helpers.py`) remains overdue by ~14 cron cycles. When the user finally fixes the auth code, every one of those scripts will recover simultaneously — but in the meantime, every night risks a different platform losing its content to the same auth-revocation failure.
+
+### Lesson for the skill body, not just this case
+
+The §5 SMTP deep-dive's "QQ Mail silent-reject variant" callout should be **re-ordered and re-weighted** — the explicit-535 (Case A) is the default mental model for QQ; the silent-reject (Case B) is a diagnostic edge case. The callout should lead with "you'll almost always see the explicit 535; only consider silent-reject when EHLO succeeds AND no `reply:` line appears between AUTH and the SMTPServerDisconnected." The manual AUTH LOGIN + getreply() recipe is the reliable diagnostic in either case.
 
 ## Diagnostic commands cheatsheet
 
