@@ -1,4 +1,4 @@
-# `toutiao-article-daily.py` recurring outage: 2026-08-25 → 2026-09-07 (14 nights, ongoing)
+# `toutiao-article-daily.py` recurring outage: 2026-08-25 → 2026-09-08 (15 nights, ongoing)
 
 A real recurring failure on this Hermes deployment, captured for future sessions to recognize instantly.
 
@@ -55,9 +55,45 @@ This matches **Case A** in the SKILL.md SMTP deep-dive (535-in-transcript, polit
 | 2026-08-26 → 2026-08-31 | 2-7 | Same code, same symptom; "do not re-diagnose" rule established (Cases C/D/E). |
 | 2026-09-02 | 8 | Case G — importlib bypass for content inspection without burning SMTP. |
 | 2026-09-03 | 10 | Case H — terse runbook dispatch mode (no more probes, just point at outbox + fix). |
-| 2026-09-04 → 2026-09-07 | 11-14 | Status quo. Manual AUTH LOGIN recipe added (Case I, this session). |
+| 2026-09-04 → 2026-09-07 | 11-14 | Status quo. Manual AUTH LOGIN recipe added (Case I). |
+| 2026-09-08 | 15 | Confirmed outage has spread across all content-platform scripts (cross-script triage grep below). No new diagnostic; pure Case H dispatch. |
 
 **Decision rule at N≥10:** skip the diagnostic loop entirely. The credential state has not changed in over a week. The outbox has today's content. Report = outbox path + the one-line fix. Don't re-run `probe_smtp.py`, don't paste transcripts, don't suggest port 587.
+
+## Cross-script triage grep (added 2026-09-08, failure #15)
+
+At failure #15 the most useful diagnostic was NOT re-running SMTP probes — it was confirming *which* scripts share this credential. One-liner that sizes the entire outage in seconds:
+
+```bash
+grep -l "smtp_pass\|get_mail_config" ~/.hermes/cron/scripts/*.py | xargs -I {} \
+  sh -c 'echo "=== {} ==="; tail -n 200 "$1" 2>/dev/null | grep -cE "(发送成功|邮件已发送|sent successfully|Login successful)" | xargs echo "  success:"; tail -n 200 "$1" 2>/dev/null | grep -cE "(发送失败|登录失败|Login fail|SMTPServerDisconnected|Connection unexpectedly)" | xargs echo "  fail:"' _ {}
+```
+
+Output on this deployment (2026-09-08):
+
+```
+=== /home/ubuntu/.hermes/cron/scripts/toutiao-article-daily.py ===
+  success: 0   fail: 11
+=== /home/ubuntu/.hermes/cron/scripts/wechat-article-daily.py ===
+  success: 0   fail: 18
+=== /home/ubuntu/.hermes/cron/scripts/xiaohongshu-travel-daily.py ===
+  success: 0   fail: 19
+```
+
+**Lesson:** when one credential is revoked, every script that uses `config_loader.get_mail_config()` fails together. The user only sees the symptom for the most-talked-about cron (toutiao), but the failure count tells you the actual blast radius. Three crons are silently dropping content right now. This confirms the `_email_helpers.py` extraction is overdue — when the auth code is finally fixed, all three recover simultaneously with one config edit.
+
+For daily content-platform cron logs that are NOT on this grep list (`daily_report.py`, `weekly_report.py`, `monthly_report.py`), the credential source is different — they read `email.password` from a different key and are correctly bypassing the broken SMTP. Don't conflate them.
+
+## Hybrid report shape (added 2026-09-08, failure #15)
+
+The SKILL.md Case H prescribes a 4-line terse dispatch for N≥10. That is the right template when the user is *waiting* on the report. But cron runs that deliver via the agent channel (this one is `deliver: origin` to the user's main chat) benefit from a slightly longer hybrid:
+
+- **Headline** (4 lines, Case H style): success/fail status, outbox path, the one-line fix
+- **One diagnostic data point**: the cross-script failure counts, to make blast radius concrete
+- **Generated content summary**: title, direction, hook (so the user knows what they'd be reading today if email worked)
+- **NO** full SMTP transcript, **NO** "try port 587" suggestion, **NO** re-explanation of what 535 means
+
+The trigger for going *back* to the 4-line Case H shape (rather than this hybrid) is: cron is in `deliver: email` mode (so the report IS the email and a long report burns the user's inbox), OR failure count is ≥30 (user has been ignoring it for a month, terser is strictly better).
 
 ## The fix (verbatim, for the user)
 

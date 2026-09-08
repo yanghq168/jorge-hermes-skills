@@ -353,6 +353,27 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   exists but not actually be the one firing, or vice versa. The log dir
   `~/.hermes/cron/output/<job_id>/` only exists for Hermes-scheduler runs.
 
+- **One revoked credential fails N scripts, not one.** When a content-platform
+  cron (e.g. `toutiao-article-daily.py`) hits `SMTPServerDisconnected`, grep
+  the whole `~/.hermes/cron/scripts/` directory for `smtp_pass` /
+  `get_mail_config` to find every script that shares the credential. One
+  bash one-liner tallies success/fail counts across all of them and gives
+  the user the real blast radius (see `references/toutiao-cron-outage-2026-08.md`
+  for the worked example: this deployment's QQ credential failure silently
+  drops content from 3 content-platform scripts, not just the one in the
+  log title). Don't fix one and report — fix the credential once and tell
+  the user how many crons recover.
+
+- **Match the report length to the delivery channel.** Case H's 4-line terse
+  dispatch is right when the cron delivers via the same broken channel
+  (e.g. `deliver: email` and email is what's broken — long reports burn the
+  user's inbox) OR when failure count is ≥30 (user has been ignoring it
+  for a month). For cron deliveries that route through the agent's main
+  chat (`deliver: origin` to Feishu/Lark/etc.) at failure counts 10–25, a
+  hybrid — headline + cross-script blast radius + generated-content
+  summary, NO SMTP transcript — communicates more without wasting tokens.
+  See `references/toutiao-cron-outage-2026-08.md` "Hybrid report shape".
+
 - **Use a dedicated `outbox/` tree, not the scheduler's `output/` tree.**
   `~/.hermes/cron/output/<job_id>/` is the scheduler's own log directory;
   dropping backup artifacts there blurs "script ran" records with
