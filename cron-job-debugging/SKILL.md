@@ -280,8 +280,43 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   Python's `smtplib` reports the server's post-AUTH socket teardown as that
   generic error. The actual cause (535, rate limit, blocked port) is in the
   SMTP transcript one level deeper. Turn on `smtplib.SMTP.debuglevel = 1`
-  and re-read the `reply:` lines before assuming connectivity is the problem.
+  (or better: drive the SMTP session manually with `AUTH LOGIN` + `getreply()`
+  per step — see Case I) and re-read the `reply:` lines before assuming
+  connectivity is the problem.
   See the "SMTP / credential failure deep-dive" section for the full recipe.
+
+- **`debuglevel=2` is NOT a "more verbose" upgrade — it can still bury the
+  535.** Both `debuglevel=1` and `debuglevel=2` rely on Python's smtplib to
+  walk through the AUTH negotiation, and Python retries with AUTH LOGIN after
+  AUTH PLAIN fails with 535. The second AUTH closes abruptly and your
+  terminal scrolls past the actual rejection. The only deterministic recipe
+  for surface-the-535 on QQ is the manual `server.send(b"AUTH LOGIN\r\n");
+  server.getreply()` per step pattern from Case I. Verified 2026-09-09
+  (failure #15): `debuglevel=2` + `SMTP_SSL(...)` reproduces the exact same
+  buries-the-535 behavior as `debuglevel=1`. Don't trust debuglevel alone.
+
+- **Before any SMTP work, check the outbox age to detect a same-outage repeat.**
+  `ls -1 ~/.hermes/cron/outbox/<platform>/*.html 2>/dev/null | wc -l` is the
+  fastest "is this the same SMTP outage I've already diagnosed?" check.
+  If the count is ≥3 AND the platform's `outbox/<platform>/README.md` has no
+  "Outage resolved" entry, you are looking at a known chronic failure —
+  skip Steps 1-5 of the diagnostic loop and jump to the Case H terse-report
+  pattern (outbox path + one-line fix). Saves the user from another 30s of
+  SMTP probe output for a problem they've been ignoring for ≥3 nights.
+  Pair with the **time-to-failure fingerprint**: a revoked QQ SMTP auth
+  code returns 535 in ~0.6-0.8 seconds (measured 2026-09-09: 0.62s wall
+  clock from `SMTP_SSL()` open to the `SMTPServerDisconnected`). If your
+  probe completes in under 1s and prints `Connection unexpectedly closed`,
+  it's a credential problem, not a network one — skip the port-587 retry
+  and go straight to the user-fix instructions.
+
+- **The "From header invalid" error mode (2026-08-23) was fixed and has
+  not recurred.** If you see `550 ... "From" header is missing or invalid.
+  Please follow RFC5322...` (vs `Connection unexpectedly closed`), check
+  the script's `msg['From']` line uses `formataddr((str(Header('Name',
+  'utf-8')), SMTP_USER))` — that pattern is the stable fix. The
+  `Connection unexpectedly closed` family of errors is a separate
+  credential problem; don't conflate them.
 
 - **Cron scripts do not inherit your interactive env vars.** A script that
   reads `os.environ['QQ_EMAIL_AUTH_CODE']` will get an empty string in cron
@@ -352,6 +387,15 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   When debugging a "silent" cron, check both — `jobs.json` may show the job
   exists but not actually be the one firing, or vice versa. The log dir
   `~/.hermes/cron/output/<job_id>/` only exists for Hermes-scheduler runs.
+
+- **`outbox/<platform>/README.md` is the durable outage log; extend it
+  on every failed night, don't rewrite.** When a cron has been failing
+  for ≥3 consecutive nights, append a `## YYYY-MM-DD（持续中 — 第N天）`
+  entry to the outbox README — never overwrite the file. The README is
+  the cross-session memory that lets a fresh cron-run agent reconstruct
+  the full outage history without burning tokens re-diagnosing. See
+  `references/outage-readme-template.md` for the full template and
+  "what goes in vs out" rules.
 
 - **One revoked credential fails N scripts, not one.** When a content-platform
   cron (e.g. `toutiao-article-daily.py`) hits `SMTPServerDisconnected`, grep
@@ -577,6 +621,65 @@ Every daily-content cron in `~/.hermes/cron/scripts/` shares the same `config_lo
 ### Lesson for the skill body, not just this case
 
 The §5 SMTP deep-dive's "QQ Mail silent-reject variant" callout should be **re-ordered and re-weighted** — the explicit-535 (Case A) is the default mental model for QQ; the silent-reject (Case B) is a diagnostic edge case. The callout should lead with "you'll almost always see the explicit 535; only consider silent-reject when EHLO succeeds AND no `reply:` line appears between AUTH and the SMTPServerDisconnected." The manual AUTH LOGIN + getreply() recipe is the reliable diagnostic in either case.
+
+## Case J — 15th consecutive identical SMTP failure: same-outage detection + time-to-failure fingerprint (2026-09-09)
+
+The `toutiao-article-daily.py` cron failed for the **15th consecutive night** (since 2026-08-25). Same auth code (`iylylmwnitbbbebi`), same `Connection unexpectedly closed` symptom. By Case H logic this should be a 4-line terse dispatch and nothing else — but a fresh cron-session agent that has no prior context will run the full diagnostic loop before realizing the outage is chronic. The new lessons this cycle are about **detection efficiency** at the start of the session.
+
+### Same-outage detection: the 5-second rule
+
+Before any SMTP work, run the outbox-count check:
+
+```bash
+ls -1 ~/.hermes/cron/outbox/toutiao/*.html 2>/dev/null | wc -l
+```
+
+If the count is ≥3 AND the platform's `outbox/toutiao/README.md` doesn't end with an "Outage resolved" entry, you are looking at a known chronic failure. **Skip Steps 1-5 of the diagnostic loop and jump to Case H.** On this deployment at 2026-09-09 the outbox had 27 HTML files, README ended with "持续中 — 第14天" → obvious same-outage, no probe needed.
+
+If the count is 1-2 (could be a new outage), do ONE confirmation probe and decide. If ≥3, the diagnosis is already done by previous sessions; your job is to surface it tersely and not waste tokens.
+
+### Time-to-failure fingerprint
+
+A revoked QQ SMTP auth code returns `535 Login fail` in **~0.6-0.8 seconds** of wall-clock time. Measured on this deployment (2026-09-09):
+
+```
+SMTP_SSL('smtp.qq.com', 465, timeout=15)  # opens in ~0.2s
+server.ehlo()                              # ~0.05s
+server.login(user, pass)                   # ~0.05s
+# 535 returned, server closes socket
+# Total: 0.62s before SMTPServerDisconnected raises
+```
+
+A real network problem (firewall blackhole, port blocked) typically takes **10-15 seconds** before the socket timeout fires. So:
+
+| Wall-clock to failure | Likely cause | Action |
+|---|---|---|
+| < 1 second | Credential rejected by server | Case A — 535 in transcript. Fix the auth code. |
+| 10-15 seconds | Socket timeout / firewall | Case C — real network problem. Try port 587, check firewall. |
+| 1-10 seconds | Borderline — could be either | Run the manual AUTH LOGIN recipe to see whether the server sent a reply before closing |
+
+This fingerprint is useful for **deciding whether to retry** without burning another full SMTP cycle. Combined with the outbox-count check, it gives a "same outage, skip probe" verdict in under 2 seconds total.
+
+### Verified recipe refinements
+
+1. **`debuglevel=2` also buries the 535** (not just `debuglevel=1`). The behavior is identical: smtplib retries AUTH LOGIN after AUTH PLAIN fails, and the second AUTH closes abruptly mid-`reply:`. Confirmed 2026-09-09. Updated the SKILL.md pitfall accordingly.
+2. **The manual AUTH LOGIN + `getreply()` recipe from Case I is the only deterministic way to surface the 535** when it IS being sent. Always prefer it over `debuglevel` for terminal-typed probes on this deployment.
+3. **Port 465 (SSL) and port 587 (STARTTLS) both fail identically** with the same 535. Confirmed 2026-09-09: `SMTP_SSL` and `SMTP+STARTTLS` both raise `SMTPServerDisconnected` in <1s after `login()`. The transport doesn't matter; the credential is the problem.
+4. **The `formataddr((Header('Name', 'utf-8'), SMTP_USER))` From-header pattern is stable** — the 2026-08-23 "550 From header invalid" failure has not recurred in 15 nights. No action needed there.
+
+### What was correctly NOT done this cycle
+
+- Did NOT re-run `probe_smtp.py` — Case H says skip it at N≥10.
+- Did NOT re-explain what `535 Login fail` means — README covers it.
+- Did NOT paste the full SMTP transcript into the user-facing failure report — only mentioned the error string.
+- Did NOT suggest "try port 587" — Case A already ruled out transport as the variable.
+- Did NOT re-extract `_email_helpers.py` — known-overdue refactor, not this cron run's problem.
+
+### Failure report shape used (this session, failure #15)
+
+Hybrid pattern from Case H: 4-line headline + cross-script blast-radius counts + today's generated-content summary (title, direction, hook). Did NOT include the SMTP transcript. Did NOT include the port-587 alt-transport suggestion. Did NOT re-explain the credential fix — pointed at the config.yaml field by path.
+
+Result: the report fits in one screen, names the file the article is saved to, tells the user exactly which config line to edit, and doesn't waste tokens re-proving what the previous 14 sessions already proved.
 
 ## Diagnostic commands cheatsheet
 

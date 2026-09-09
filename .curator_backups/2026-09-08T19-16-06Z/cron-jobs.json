@@ -20,15 +20,15 @@
       "schedule_display": "0 23 * * *",
       "repeat": {
         "times": null,
-        "completed": 71
+        "completed": 106
       },
       "enabled": true,
       "state": "scheduled",
       "paused_at": null,
       "paused_reason": null,
       "created_at": "2026-05-27T00:40:27.868154+08:00",
-      "next_run_at": "2026-08-05T23:00:00+08:00",
-      "last_run_at": "2026-08-04T23:00:35.240822+08:00",
+      "next_run_at": "2026-09-09T23:00:00+08:00",
+      "last_run_at": "2026-09-08T23:00:54.987448+08:00",
       "last_status": "ok",
       "last_error": null,
       "last_delivery_error": null,
@@ -62,15 +62,15 @@
       "schedule_display": "30 20 * * *",
       "repeat": {
         "times": null,
-        "completed": 69
+        "completed": 104
       },
       "enabled": true,
       "state": "scheduled",
       "paused_at": null,
       "paused_reason": null,
       "created_at": "2026-05-27T01:21:17.367934+08:00",
-      "next_run_at": "2026-08-05T20:30:00+08:00",
-      "last_run_at": "2026-08-04T20:30:33.519795+08:00",
+      "next_run_at": "2026-09-09T20:30:00+08:00",
+      "last_run_at": "2026-09-08T20:32:52.852457+08:00",
       "last_status": "ok",
       "last_error": null,
       "last_delivery_error": "delivery error: Feishu send failed: [99992402] field validation failed",
@@ -104,15 +104,15 @@
       "schedule_display": "0 2 * * *",
       "repeat": {
         "times": null,
-        "completed": 70
+        "completed": 105
       },
       "enabled": true,
       "state": "scheduled",
       "paused_at": null,
       "paused_reason": null,
       "created_at": "2026-05-27T12:31:50.325994+08:00",
-      "next_run_at": "2026-08-06T02:00:00+08:00",
-      "last_run_at": "2026-08-05T02:00:55.375213+08:00",
+      "next_run_at": "2026-09-10T02:00:00+08:00",
+      "last_run_at": "2026-09-09T02:01:05.999857+08:00",
       "last_status": "ok",
       "last_error": null,
       "last_delivery_error": "delivery error: Feishu send failed: [99992402] field validation failed",
@@ -230,15 +230,15 @@
       "schedule_display": "0 10 * * *",
       "repeat": {
         "times": null,
-        "completed": 66
+        "completed": 101
       },
       "enabled": true,
       "state": "scheduled",
       "paused_at": null,
       "paused_reason": null,
       "created_at": "2026-05-30T10:58:38.563097+08:00",
-      "next_run_at": "2026-08-05T10:00:00+08:00",
-      "last_run_at": "2026-08-04T10:00:24.541772+08:00",
+      "next_run_at": "2026-09-09T10:00:00+08:00",
+      "last_run_at": "2026-09-08T10:00:35.621400+08:00",
       "last_status": "error",
       "last_error": "Script not found: /home/ubuntu/.hermes/scripts/cron/scripts/xhs-escape-weekend.py",
       "last_delivery_error": null,
@@ -272,15 +272,15 @@
       "schedule_display": "0 7 * * *",
       "repeat": {
         "times": null,
-        "completed": 66
+        "completed": 101
       },
       "enabled": true,
       "state": "scheduled",
       "paused_at": null,
       "paused_reason": null,
       "created_at": "2026-05-30T10:58:41.902182+08:00",
-      "next_run_at": "2026-08-05T07:00:00+08:00",
-      "last_run_at": "2026-08-04T07:00:22.065579+08:00",
+      "next_run_at": "2026-09-09T07:00:00+08:00",
+      "last_run_at": "2026-09-08T07:00:32.738779+08:00",
       "last_status": "error",
       "last_error": "Script not found: /home/ubuntu/.hermes/scripts/cron/scripts/wechat-article-daily.py",
       "last_delivery_error": null,
@@ -314,15 +314,15 @@
       "schedule_display": "0 3 * * *",
       "repeat": {
         "times": null,
-        "completed": 66
+        "completed": 102
       },
       "enabled": true,
       "state": "scheduled",
       "paused_at": null,
       "paused_reason": null,
       "created_at": "2026-05-30T16:04:13.051517+08:00",
-      "next_run_at": "2026-08-05T03:00:00+08:00",
-      "last_run_at": "2026-08-04T03:00:19.154816+08:00",
+      "next_run_at": "2026-09-10T03:00:00+08:00",
+      "last_run_at": "2026-09-09T03:00:06.917901+08:00",
       "last_status": "error",
       "last_error": "Script not found: /home/ubuntu/.hermes/scripts/cron/scripts/skill-backup.sh",
       "last_delivery_error": null,
@@ -356,15 +356,15 @@
       "schedule_display": "0 4 * * *",
       "repeat": {
         "times": null,
-        "completed": 66
+        "completed": 101
       },
       "enabled": true,
       "state": "scheduled",
       "paused_at": null,
       "paused_reason": null,
       "created_at": "2026-05-30T16:04:29.930758+08:00",
-      "next_run_at": "2026-08-05T04:00:00+08:00",
-      "last_run_at": "2026-08-04T04:00:20.426003+08:00",
+      "next_run_at": "2026-09-09T04:00:00+08:00",
+      "last_run_at": "2026-09-08T04:00:31.133372+08:00",
       "last_status": "error",
       "last_error": "Script not found: /home/ubuntu/.hermes/scripts/agency-backup/scripts/agency-backup.sh",
       "last_delivery_error": null,
@@ -400,15 +400,15 @@
       "schedule_display": "0 10 * * *",
       "repeat": {
         "times": null,
-        "completed": 59
+        "completed": 94
       },
       "enabled": true,
       "state": "scheduled",
       "paused_at": null,
       "paused_reason": null,
       "created_at": "2026-06-07T22:49:43.450929+08:00",
-      "next_run_at": "2026-08-05T10:00:00+08:00",
-      "last_run_at": "2026-08-04T10:01:18.986925+08:00",
+      "next_run_at": "2026-09-09T10:00:00+08:00",
+      "last_run_at": "2026-09-08T10:00:56.932707+08:00",
       "last_status": "ok",
       "last_error": null,
       "last_delivery_error": null,
@@ -424,5 +424,5 @@
       "profile": null
     }
   ],
-  "updated_at": "2026-08-05T02:00:55.375621+08:00"
+  "updated_at": "2026-09-09T03:00:06.918275+08:00"
 }

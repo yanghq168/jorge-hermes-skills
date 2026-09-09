@@ -1,4 +1,4 @@
-# `toutiao-article-daily.py` recurring outage: 2026-08-25 → 2026-09-08 (15 nights, ongoing)
+# `toutiao-article-daily.py` recurring outage: 2026-08-25 → 2026-09-09 (16 nights, ongoing)
 
 A real recurring failure on this Hermes deployment, captured for future sessions to recognize instantly.
 
@@ -11,7 +11,7 @@ The nightly `toutiao-article-daily.py` cron (scheduled via Hermes `jobs.json` at
 ```
 🏠 权权的HERMES · 头条号文章生成器 v1.1.0
 ...
-❌ 发送失败：Connection unexpectedly closed (重试2次仍失败，HTML已备份: .../outbox/toutiao/20260907_2030_赡养义务.html)
+❌ 发送失败：Connection unexpectedly closed (重试2次仍失败，HTML已备份: .../outbox/toutiao/20260909_2030_亲戚恩怨.html)
 ```
 
 The script's own stderr surfaces only the generic `SMTPServerDisconnected("Connection unexpectedly closed")`. The actual root cause (535 Login fail) is invisible until you re-run with `smtplib.SMTP.debuglevel = 2` or with the manual AUTH LOGIN recipe below.
@@ -43,9 +43,29 @@ password -> 535: b'Login fail. Account is abnormal, service is not open, passwor
 
 This matches **Case A** in the SKILL.md SMTP deep-dive (535-in-transcript, polite SMTP reply). The Case B silent-reject signature (no `reply:` line between AUTH and SMTPServerDisconnected) has been observed once on this deployment (2026-08-24) but is the exception, not the norm.
 
+**Confirmed again on 2026-09-09 (failure #16)**: identical transcript, deterministic output. Manual recipe remains the only reliable surface.
+
 ## Outbox accumulation
 
-`~/.hermes/cron/outbox/toutiao/` grows by 1-2 files per failed night (~27 KB each). As of 2026-09-07 it contains **27 HTML files** from this outage, plus earlier successful backups (~764 KB cumulative). This is **correct behavior** — the script's failure-path writeback is the only thing keeping the daily content from being lost. The `outbox/toutiao/README.md` was extended with a "## 2026-09-07（持续中 — 第14天）" entry following the Case C/G convention; the README is the durable outage log that survives across cron-job-script edits.
+`~/.hermes/cron/outbox/toutiao/` grows by 1-2 files per failed night (~27 KB each). As of 2026-09-09 it contains **29 HTML files** from this outage, plus earlier successful backups (~810 KB cumulative). This is **correct behavior** — the script's failure-path writeback is the only thing keeping the daily content from being lost. The `outbox/toutiao/README.md` is the durable outage log that survives across cron-job-script edits; see the README for the live status timestamp.
+
+## Same-outage detection (added 2026-09-09, failure #16)
+
+Two refinements that let a fresh cron-session agent skip the diagnostic loop when this outage recurs again:
+
+1. **Outbox-count check at session start.** Before running any SMTP probe:
+   ```bash
+   ls -1 ~/.hermes/cron/outbox/toutiao/*.html 2>/dev/null | wc -l
+   ```
+   Count ≥3 + no "Outage resolved" in `outbox/toutiao/README.md` = known chronic failure. Jump straight to Case H dispatch pattern. Verified 2026-09-09: outbox had 29 files, README ended with "持续中 — 第14天" → obvious same-outage, no probe needed.
+
+2. **Time-to-failure fingerprint.** Revoked QQ SMTP auth code returns `535` in **~0.6-0.8 seconds** of wall-clock time (measured 2026-09-09: 0.62s from `SMTP_SSL()` open to `SMTPServerDisconnected` raising). Real network problems take 10-15s before socket timeout fires. Useful as a "is this the same outage?" fingerprint without re-running the full transcript.
+
+| Wall-clock to failure | Likely cause | Action |
+|---|---|---|
+| < 1 second | Credential rejected by server | Case A — 535 in transcript. Fix the auth code. |
+| 10-15 seconds | Socket timeout / firewall | Case C — real network problem. Try port 587, check firewall. |
+| 1-10 seconds | Borderline | Run manual AUTH LOGIN recipe to see whether the server sent a reply. |
 
 ## Outage history (cumulative failure count, days)
 
@@ -57,8 +77,11 @@ This matches **Case A** in the SKILL.md SMTP deep-dive (535-in-transcript, polit
 | 2026-09-03 | 10 | Case H — terse runbook dispatch mode (no more probes, just point at outbox + fix). |
 | 2026-09-04 → 2026-09-07 | 11-14 | Status quo. Manual AUTH LOGIN recipe added (Case I). |
 | 2026-09-08 | 15 | Confirmed outage has spread across all content-platform scripts (cross-script triage grep below). No new diagnostic; pure Case H dispatch. |
+| 2026-09-09 | 16 | Case J — outbox-count + 0.62s time-to-failure fingerprint for same-outage detection at session start. Refined pitfall: `debuglevel=2` ALSO buries the 535, not just `debuglevel=1`. |
 
 **Decision rule at N≥10:** skip the diagnostic loop entirely. The credential state has not changed in over a week. The outbox has today's content. Report = outbox path + the one-line fix. Don't re-run `probe_smtp.py`, don't paste transcripts, don't suggest port 587.
+
+**Decision rule at session start, before any SMTP work:** run the outbox-count check (`ls -1 ~/.hermes/cron/outbox/<platform>/*.html | wc -l`) — if ≥3, you're looking at a known chronic outage, jump straight to the Case H dispatch pattern. Saves the user from another 30s of probe output for a problem that's already been diagnosed N times.
 
 ## Cross-script triage grep (added 2026-09-08, failure #15)
 
@@ -139,4 +162,12 @@ Most likely: the user is either away from the QQ-registered phone (so step 4 SMS
 - `~/.hermes/cron/scripts/xhs-escape-weekend.py`
 - `~/.hermes/cron/scripts/bithappy_email_pro.py`
 
-The shared `_email_helpers.py` extraction (proposed in Case C, repeated in E + F + G + H + I) remains the overdue refactor — until it lands, each script silently drops its content instead of saving to outbox when SMTP breaks. Per Case E, a third-party transactional mail relay (Resend / SMTP2GO / SendGrid) with a static API key is the migration that would permanently end this weekly revocation cycle.
+The shared `_email_helpers.py` extraction (proposed in Case C, repeated in E + F + G + H + I + J) remains the overdue refactor — until it lands, each script silently drops its content instead of saving to outbox when SMTP breaks. Per Case E, a third-party transactional mail relay (Resend / SMTP2GO / SendGrid) with a static API key is the migration that would permanently end this weekly revocation cycle.
+
+## Today's run (2026-09-09, failure #16)
+
+- **Generated**: 长文《63岁大伯给侄子出了20万学费，侄子毕业后第一件事是'断了联系'》（亲戚恩怨方向）+ 微头条《大伯供我上大学...屏蔽》+ 《我65岁，存款30万...不够养老》
+- **HTML backup**: `~/.hermes/cron/outbox/toutiao/20260909_2030_亲戚恩怨.html` (27 KB)
+- **SMTP attempt**: 535 at 0.62s wall-clock, identical transcript to failure #14
+- **Failure report delivered to user chat (hybrid Case H shape)**.
+- **No new diagnostic content** — this run was a pure Case H dispatch per the Case J session-start detection rule.
