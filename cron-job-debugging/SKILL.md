@@ -555,9 +555,37 @@ Compress the failure report to four lines:
 
 That's it. No probe, no transcript dump, no alternative-transport suggestion. The user knows what to do; they're either (a) traveling / away from QQ web UI, (b) deferred it as low priority, or (c) genuinely forgot. The terse reminder with a concrete fix command is the highest-value response.
 
+**Always append to `outbox/<platform>/README.md` as the durable action** — the cron-output report rides the `deliver: origin` channel and disappears from view after the user scrolls past it. The README entry is the cross-session memory that survives across cron runs. Use the format from `references/outage-readme-template.md`:
+
+```bash
+cat >> ~/.hermes/cron/outbox/toutiao/README.md <<EOF
+## YYYY-MM-DD（持续中 — 第N天）
+- Symptom: Connection unexpectedly closed on smtp.qq.com:465 (auth code iylylmwnitbbbebi)
+- Generated content: outbox/toutiao/YYYYMMDD_HHMM_<direction>.html
+- Fix: mail.qq.com → 账户 → SMTP服务 → 重新生成授权码 → 写回 ~/.hermes/cron/config/config.yaml
+EOF
+```
+
+Skipping this step is the most common way a chronic outage loses its history — the agent that runs next week has no record of how long the credential has been dead, and will waste tokens re-running the full diagnostic loop instead of jumping to Case H.
+
 ### Outbox count = silent outage clock
 
 `ls ~/.hermes/cron/outbox/<platform>/ | grep -c '\.html$'` is now the canonical "how broken is SMTP right now" indicator. The count grows by 1 per failed night, freezes when fixed. If the count is ≥7 and the README.md has no "Outage resolved" entry, the outage is live. Use this to skip Step 1 of the diagnostic loop entirely — go straight to report.
+
+### Diagnostic sequence for a fresh agent on a chronic outage (2026-09-10, failure #16)
+
+When a fresh session encounters a cron that prints `❌ 发送失败: Connection unexpectedly closed`, the optimal sequence is:
+
+1. **Outbox count** (`ls -1 ~/.hermes/cron/outbox/<platform>/*.html 2>/dev/null | wc -l`) — if ≥3, jump straight to step 6.
+2. **Re-run script directly** (`python3 ~/.hermes/cron/scripts/<script>.py`) to reproduce and confirm it's not an agent-mode wrapper artifact.
+3. **Probe with `smtplib.SMTP_SSL` + `debuglevel=2`** to see if 535 surfaces — Case J confirmed `debuglevel=2` ALSO buries the 535 for this QQ deployment, so don't expect it.
+4. **Manual AUTH LOGIN + `getreply()` per step** (Case I recipe) — this IS the deterministic 535-surfacer. Always prefer over `debuglevel` alone.
+5. **Port sweep** (465 SSL → 587 STARTTLS → 25 plain) — if all three die in <1s with 535, credential is dead. If 25 is "Network is unreachable" but 465/587 die fast, credential is dead AND ISP blocks port 25 (orthogonal problem).
+6. **DNS / IP check** (`socket.getaddrinfo('smtp.qq.com', 465)`) — useful to rule out CDN/routing issues. If TCP connect succeeds (already verified by `SMTP_SSL` opening), DNS is fine.
+7. **Terse Case H report** — only after the count + 535 are confirmed. Include outbox path + one-line fix.
+8. **README extension** — append the `## YYYY-MM-DD（持续中 — 第N天）` entry to `outbox/<platform>/README.md` (Case H pattern). This is the durable cross-session memory.
+
+The whole sequence should complete in under 60 seconds for an experienced agent. If it's taking longer, you're debugging the wrong thing — the skill already covers it.
 
 ## Case I — 14th consecutive identical SMTP failure: low-level AUTH LOGIN probe reveals explicit 535 (2026-09-07)
 
