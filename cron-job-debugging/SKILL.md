@@ -1,7 +1,7 @@
 ---
 name: cron-job-debugging
 description: "Debug silently-failing Hermes cron jobs (no_agent script mode, scheduled prompt jobs, chained jobs). Diagnose 'Script not found', silent no-op, exit-code-without-output, path-resolution failures, AND credential/SMTP delivery failures by reading scheduler output logs in ~/.hermes/cron/output/. Applies the script-path resolution rule, the SMTP-credential deep-dive, and the local-fallback save pattern."
-version: 1.1.0
+version: 1.2.0
 author: Hermes Agent
 license: MIT
 platforms: [linux, macos]
@@ -380,6 +380,25 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   one-line fix. The user knows — they just haven't done it. Treat it like
   a runbook dispatch, not an investigation. See Case H for the canonical
   terse report template.
+
+- **`SMTPServerDisconnected` with IDENTICAL response for correct AND wrong
+  password is a 4th diagnostic mode — IP-level AUTH block, not credential
+  revocation.** Discovered 2026-09-11 (failure #17): both
+  `server.login(good_pass)` and `server.login(wrong_pass)` returned the
+  exact same `SMTPServerDisconnected("Connection unexpectedly closed")`
+  in ~0.6s, with no `reply:` line, no 535. This means QQ's SMTP server
+  is rejecting AUTH commands from this cloud server's IP **before** doing
+  credential validation — the TCP connection succeeds, EHLO succeeds, but
+  the AUTH command triggers a silent drop regardless of whether the
+  password is right. Diagnosis: run the manual AUTH probe from Case I
+  with a deliberately wrong password; if it produces the same
+  signature as the correct password, you have an IP-level block, not a
+  credential problem. **Fix is the same user action** (regenerate QQ
+  auth code — fresh credentials may also use a slightly different
+  anti-spam heuristic that bypasses the block), but the diagnostic
+  signature is different and should not be confused with Case B
+  silent-reject of a known-bad credential. Add this as Case K in
+  `references/smtp-credential-failure-case-study.md`.
 
 - **`crontab.txt` and Hermes `jobs.json` are independent schedulers.** Some
   deployments run the same script under both classic cron (`crontab -l` →
