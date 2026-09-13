@@ -1,4 +1,4 @@
-# `toutiao-article-daily.py` recurring outage: 2026-08-25 → 2026-09-09 (16 nights, ongoing)
+# `toutiao-article-daily.py` recurring outage: 2026-08-25 → 2026-09-13 (20 nights, ongoing)
 
 A real recurring failure on this Hermes deployment, captured for future sessions to recognize instantly.
 
@@ -11,7 +11,7 @@ The nightly `toutiao-article-daily.py` cron (scheduled via Hermes `jobs.json` at
 ```
 🏠 权权的HERMES · 头条号文章生成器 v1.1.0
 ...
-❌ 发送失败：Connection unexpectedly closed (重试2次仍失败，HTML已备份: .../outbox/toutiao/20260909_2030_亲戚恩怨.html)
+❌ 发送失败：Connection unexpectedly closed (重试2次仍失败，HTML已备份: .../outbox/toutiao/20260913_2030_遗产分配.html)
 ```
 
 The script's own stderr surfaces only the generic `SMTPServerDisconnected("Connection unexpectedly closed")`. The actual root cause (535 Login fail) is invisible until you re-run with `smtplib.SMTP.debuglevel = 2` or with the manual AUTH LOGIN recipe below.
@@ -45,9 +45,11 @@ This matches **Case A** in the SKILL.md SMTP deep-dive (535-in-transcript, polit
 
 **Confirmed again on 2026-09-09 (failure #16)**: identical transcript, deterministic output. Manual recipe remains the only reliable surface.
 
+**Confirmed again on 2026-09-13 (failure #20) on BOTH transports**: same explicit 535 reply on port 587 STARTTLS as on port 465 SSL — see Case L below.
+
 ## Outbox accumulation
 
-`~/.hermes/cron/outbox/toutiao/` grows by 1-2 files per failed night (~27 KB each). As of 2026-09-09 it contains **29 HTML files** from this outage, plus earlier successful backups (~810 KB cumulative). This is **correct behavior** — the script's failure-path writeback is the only thing keeping the daily content from being lost. The `outbox/toutiao/README.md` is the durable outage log that survives across cron-job-script edits; see the README for the live status timestamp.
+`~/.hermes/cron/outbox/toutiao/` grows by 1-2 files per failed night (~27 KB each). As of 2026-09-13 it contains **36 HTML files** from this outage, plus earlier successful backups (~810 KB cumulative). This is **correct behavior** — the script's failure-path writeback is the only thing keeping the daily content from being lost. The `outbox/toutiao/README.md` is the durable outage log that survives across cron-job-script edits; see the README for the live status timestamp.
 
 ## Same-outage detection (added 2026-09-09, failure #16)
 
@@ -78,10 +80,16 @@ Two refinements that let a fresh cron-session agent skip the diagnostic loop whe
 | 2026-09-04 → 2026-09-07 | 11-14 | Status quo. Manual AUTH LOGIN recipe added (Case I). |
 | 2026-09-08 | 15 | Confirmed outage has spread across all content-platform scripts (cross-script triage grep below). No new diagnostic; pure Case H dispatch. |
 | 2026-09-09 | 16 | Case J — outbox-count + 0.62s time-to-failure fingerprint for same-outage detection at session start. Refined pitfall: `debuglevel=2` ALSO buries the 535, not just `debuglevel=1`. |
+| 2026-09-10 | 17 | Pure Case H dispatch — outbox grew, transcript unchanged. No new lesson. |
+| 2026-09-11 | 18 | Pure Case H dispatch — same symptom, same auth code. No new lesson. |
+| 2026-09-12 | 19 | Pure Case H dispatch — outbox 36 files. No new lesson. |
+| 2026-09-13 | 20 | Case L — manual probe on BOTH transports (465 SSL and 587 STARTTLS) confirmed both surface the **same explicit 535 line** (not just disconnects). At N=20 the manual probe is purely ceremonial confirmation; the report can be the terse Case H template plus the day's generated title, nothing more. |
 
 **Decision rule at N≥10:** skip the diagnostic loop entirely. The credential state has not changed in over a week. The outbox has today's content. Report = outbox path + the one-line fix. Don't re-run `probe_smtp.py`, don't paste transcripts, don't suggest port 587.
 
 **Decision rule at session start, before any SMTP work:** run the outbox-count check (`ls -1 ~/.hermes/cron/outbox/<platform>/*.html | wc -l`) — if ≥3, you're looking at a known chronic outage, jump straight to the Case H dispatch pattern. Saves the user from another 30s of probe output for a problem that's already been diagnosed N times.
+
+**Decision rule at N≥20:** the manual probe is now ceremonial. ONE line from the manual AUTH LOGIN recipe (the `password -> 535:` line) is enough to confirm the outage is unchanged. Don't paste the full transcript, don't run port 587 in parallel, don't list alternative transports — the user has seen all of that 19 times. The report should be: today's generated title + outbox path + the one-line fix command + failure count. That is the entire value-add at N=20.
 
 ## Cross-script triage grep (added 2026-09-08, failure #15)
 
@@ -171,3 +179,47 @@ The shared `_email_helpers.py` extraction (proposed in Case C, repeated in E + F
 - **SMTP attempt**: 535 at 0.62s wall-clock, identical transcript to failure #14
 - **Failure report delivered to user chat (hybrid Case H shape)**.
 - **No new diagnostic content** — this run was a pure Case H dispatch per the Case J session-start detection rule.
+
+## Case L — 20th consecutive identical SMTP failure: both transports now confirmed to surface explicit 535 (2026-09-13)
+
+The `toutiao-article-daily.py` cron failed for the **20th consecutive night** (since 2026-08-25). Same auth code (`iylylmwnitbbbebi`), same `Connection unexpectedly closed` symptom, same 535 root cause. The outage is now three full weeks old with no user action taken.
+
+### Both transports surface the same explicit 535 — not a "transport issue"
+
+Case J already noted "Port 465 and 587 both fail identically in <1s." The 2026-09-13 cycle went one step further and ran the manual AUTH LOGIN recipe on **port 587 STARTTLS** (in addition to the canonical 465 SSL recipe). Both produce the **same explicit `password -> 535: b'Login fail. Account is abnormal...'` line** — not a silent disconnect, not a different code, the exact same QQ rejection. This eliminates the last "maybe it's the transport" theory and confirms the credential is binary dead regardless of which port the script uses.
+
+This is a refinement, not a contradiction of Case J. The practical implication: **do not recommend port 587 to the user as an alternative anymore.** Every cron script on this deployment that uses `config_loader.get_mail_config()` is hitting port 465 by default; switching to 587 would produce the identical failure with one extra `STARTTLS` round-trip. Don't burn the user's time on transport suggestions.
+
+### Probe-at-N≥20 is purely ceremonial
+
+By failure N=20, the manual probe's role is reduced to **one line of confirmation**, not a diagnostic exercise. Today's session produced:
+
+```
+password -> 535: b'Login fail. Account is abnormal, service is not open, password is incorrect, login frequency limited, or system is busy. ...'
+```
+
+That single line, plus the outbox-count check (`36` files in `~/.hermes/cron/outbox/toutiao/`), plus the README's "持续中" timestamp is the entire information needed to dispatch. No port sweep, no transcript dump, no DNS check, no `debuglevel=1` AND `debuglevel=2` comparison. Those were useful at N=10, informational at N=15, and pure token-burn at N=20.
+
+### Today's report shape (failure #20, in this conversation)
+
+The user delivered a 3-section report:
+
+1. **Generate status** (✅) — title, direction, category, micro-articles, outbox path
+2. **Delivery status** (❌) — single-line 535 mention + outbox backup confirmation
+3. **User fix** — verbatim QQ-web-UI steps, copy-paste-ready
+
+This is the canonical N=20 template. Skipped (correctly): SMTP transcript, port-587 alt-transport suggestion, `probe_smtp.py` re-run, full diagnostic loop enumeration, cross-script blast-radius tally (the Case J triage grep already covers that for any fresh agent).
+
+### Today's run (2026-09-13, failure #20)
+
+- **Generated**: 长文《72岁老人存了40万，遗嘱写好两年，去世后三个子女差点打起来》（遗产分配方向）+ 微头条《大伯供我上大学...屏蔽》+ 《我65岁，存款30万...不够养老》
+- **HTML backup**: `~/.hermes/cron/outbox/toutiao/20260913_2030_遗产分配.html` (27 KB)
+- **SMTP probe (ceremonial)**: manual AUTH LOGIN on both 465 and 587 → both surface the identical explicit 535 reply in ~0.6s. Credential state unchanged since 2026-08-25.
+- **Outbox size**: 36 HTML files, ~810 KB cumulative
+- **Failure report delivered**: 3-section Case L template (generate / deliver / fix). No new diagnostic content beyond Case J + Case L refinement.
+
+### When the user finally fixes it — the consolidated post-outage checklist
+
+When `iylylmwnitbbbebi` is finally replaced with a fresh authorization code (likely via QQ web UI per the verbatim steps in the "The fix" section above), the recovery is a single config edit that unblocks **all** the scripts listed in the "Other scripts that would fail identically today" section — six content-platform scripts total, not just `toutiao-article-daily.py`. The `_email_helpers.py` extraction remains the overdue refactor that would prevent future chronic outages by making credential rotation a single-file change.
+
+Until that lands, the operating assumption for any cron session touching `smtp.qq.com:465` or `smtp.qq.com:587` with `569545015@qq.com` is: **the credential is dead, the outbox has today's content, the user has been told N times, the report should not re-explain.** Anything more is noise.

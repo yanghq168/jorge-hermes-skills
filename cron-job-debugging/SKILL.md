@@ -296,19 +296,21 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   buries-the-535 behavior as `debuglevel=1`. Don't trust debuglevel alone.
 
 - **Before any SMTP work, check the outbox age to detect a same-outage repeat.**
-  `ls -1 ~/.hermes/cron/outbox/<platform>/*.html 2>/dev/null | wc -l` is the
-  fastest "is this the same SMTP outage I've already diagnosed?" check.
-  If the count is ≥3 AND the platform's `outbox/<platform>/README.md` has no
-  "Outage resolved" entry, you are looking at a known chronic failure —
-  skip Steps 1-5 of the diagnostic loop and jump to the Case H terse-report
-  pattern (outbox path + one-line fix). Saves the user from another 30s of
-  SMTP probe output for a problem they've been ignoring for ≥3 nights.
-  Pair with the **time-to-failure fingerprint**: a revoked QQ SMTP auth
-  code returns 535 in ~0.6-0.8 seconds (measured 2026-09-09: 0.62s wall
-  clock from `SMTP_SSL()` open to the `SMTPServerDisconnected`). If your
-  probe completes in under 1s and prints `Connection unexpectedly closed`,
-  it's a credential problem, not a network one — skip the port-587 retry
-  and go straight to the user-fix instructions.
+  - **Before any SMTP work, check the outbox age to detect a same-outage repeat.**
+    `ls -1 ~/.hermes/cron/outbox/<platform>/*.html 2>/dev/null | wc -l` is the fastest "is this the same SMTP outage I've already diagnosed?" check.
+    If the count is ≥3 AND the platform's `outbox/<platform>/README.md` has no
+    "Outage resolved" entry, you are looking at a known chronic failure —
+    skip Steps 1-5 of the diagnostic loop and jump to the Case H terse-report
+    pattern (outbox path + one-line fix). Saves the user from another 30s of
+    SMTP probe output for a problem they've been ignoring for ≥3 nights.
+    Pair with the **time-to-failure fingerprint**: a revoked QQ SMTP auth
+    code returns 535 in ~0.6-0.8 seconds (measured 2026-09-09: 0.62s wall
+    clock from `SMTP_SSL()` open to the `SMTPServerDisconnected`). If your
+    probe completes in under 1s and prints `Connection unexpectedly closed`,
+    it's a credential problem, not a network one — skip the port-587 retry
+    and go straight to the user-fix instructions. At N≥20 the probe is purely
+    ceremonial; one line of AUTH LOGIN output (the `password -> 535:` line)
+    is the entire diagnostic value, the rest is noise.
 
 - **The "From header invalid" error mode (2026-08-23) was fixed and has
   not recurred.** If you see `550 ... "From" header is missing or invalid.
@@ -473,7 +475,7 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
 
 ## Cross-reference: known recurring outage
 
-For the `toutiao-article-daily.py` QQ SMTP outage (10+ nights as of 2026-09-03, identical `Connection unexpectedly closed` every night, auth code `iylylmwnitbbbebi` revoked), see `references/toutiao-cron-outage-2026-08.md`. It contains the verbatim QQ-web-UI fix steps, the outbox cleanup recipe, and the terse-report pattern from Case H. **If you see a `Connection unexpectedly closed` on `smtp.qq.com:465` for `569545015@qq.com`, read that file first — the credential is almost certainly already revoked and the outbox already has today's content.**
+For the `toutiao-article-daily.py` QQ SMTP outage (20+ nights as of 2026-09-13, identical `Connection unexpectedly closed` every night, auth code `iylylmwnitbbbebi` revoked), see `references/toutiao-cron-outage-2026-08.md`. It contains the verbatim QQ-web-UI fix steps, the outbox cleanup recipe, the terse-report pattern from Case H, and Cases I/J/L for refined probe recipes. **If you see a `Connection unexpectedly closed` on `smtp.qq.com:465` for `569545015@qq.com`, read that file first — the credential is almost certainly already revoked and the outbox already has today's content.**
 
 ## Case G — Agent-mode cron variant: 7th consecutive failure, outbox accumulation, importlib bypass (2026-09-02)
 
