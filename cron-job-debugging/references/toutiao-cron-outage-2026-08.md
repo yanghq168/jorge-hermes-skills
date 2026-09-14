@@ -1,6 +1,8 @@
-# `toutiao-article-daily.py` recurring outage: 2026-08-25 → 2026-09-13 (20 nights, ongoing)
+# `toutiao-article-daily.py` recurring outage: 2026-08-25 → ongoing
 
 A real recurring failure on this Hermes deployment, captured for future sessions to recognize instantly.
+
+**Current status (2026-09-14): 21 consecutive nights, credential `iylylmwnitbbbebi` revoked by QQ anti-spam, outbox has 38 HTML files, `jobs.json` shows `last_status: "ok"` (masked — see "Outbox-count vs scheduler view" below).**
 
 ## What's broken
 
@@ -49,7 +51,102 @@ This matches **Case A** in the SKILL.md SMTP deep-dive (535-in-transcript, polit
 
 ## Outbox accumulation
 
-`~/.hermes/cron/outbox/toutiao/` grows by 1-2 files per failed night (~27 KB each). As of 2026-09-13 it contains **36 HTML files** from this outage, plus earlier successful backups (~810 KB cumulative). This is **correct behavior** — the script's failure-path writeback is the only thing keeping the daily content from being lost. The `outbox/toutiao/README.md` is the durable outage log that survives across cron-job-script edits; see the README for the live status timestamp.
+`~/.hermes/cron/outbox/toutiao/` grows by 1-2 files per failed night (~27 KB each). As of 2026-09-14 it contains **38 HTML files** from this outage, plus earlier successful backups (~860 KB cumulative). This is **correct behavior** — the script's failure-path writeback is the only thing keeping the daily content from being lost. The `outbox/toutiao/README.md` is the durable outage log that survives across cron-job-script edits; see the README for the live status timestamp.
+
+## Outbox-count vs scheduler view: the `last_status=ok` masking problem (2026-09-14, failure #21)
+
+This is the **newest and most operationally important lesson** of this outage. The Hermes scheduler's view of cron health (`jobs.json` `last_status` field) is decoupled from actual delivery success when the script has a graceful-degradation fallback.
+
+### What's happening
+
+When `toutiao-article-daily.py::send_email()` fails:
+1. The catch block saves the HTML to `~/.hermes/cron/outbox/toutiao/` (graceful degradation — correct, preserves content).
+2. The function returns `False, error_message`.
+3. `main()` prints the error and returns normally.
+4. The script's `if __name__ == "__main__":` body has nothing to exit non-zero on.
+5. The scheduler reads exit code 0 → sets `last_status: "ok"`.
+
+The actual `jobs.json` entry as of 2026-09-14:
+
+```json
+{
+  "id": "406529dd5f2e",
+  "name": "头条号文章",
+  "last_run_at": "2026-09-13T20:32:15.500940+08:00",
+  "last_status": "ok",
+  "repeat": { "completed": 109 },
+  "last_delivery_error": "delivery error: Feishu send failed: [99992402] field validation failed"
+}
+```
+
+A green `last_status: "ok"` for a cron that has not actually delivered email in 21 nights. The `last_delivery_error` field is about a Feishu thread — totally separate from the QQ SMTP failure. The scheduler has **no field that captures "the email send failed silently"**; it only knows about the agent's final delivery success to the `origin` chat.
+
+### Why this is dangerous
+
+Any fresh agent (or dashboard, or monitoring script) querying `hermes cron list` will see `last_status: "ok"` and conclude "this cron is healthy, no action needed." It may then:
+- Stop reporting the failure to the user (assuming it's already known).
+- Skip the Case J outbox-count detection rule (because the cron "looks fine").
+- Miss the masking and fail to escalate, even though the user has been ignoring the cron for 21 nights.
+
+The graceful-degradation fallback is the **right design pattern for content crons** (Case C/F: don't lose today's work because email is broken). But the side effect is that the scheduler's health view becomes a lie.
+
+### Two correct fixes
+
+**Fix 1 (preferred for content crons)**: make `send_email()` failure propagate to a non-zero exit code while preserving the outbox save:
+
+```python
+# In send_email()'s failure path — already saves HTML, then:
+return False, f"{last_err} (重试2次仍失败，HTML已备份: {fname})"
+
+# In main() at the bottom:
+success, msg = send_email(html_content, plain_text, topic, micro_articles)
+if not success:
+    sys.stderr.write(f"\n❌ 发送失败：{msg}\n")
+    sys.exit(1)         # <-- THIS is what fixes the masking
+print(f"\n✅ 邮件发送成功！")
+```
+
+Important: outbox save MUST happen **before** `sys.exit(1)`, so graceful-degradation content preservation still works. The outbox backup is independent of the exit code.
+
+**Fix 2 (no script surgery)**: add an external health check that reconciles `last_status` against the outbox state:
+
+```bash
+# Daily at 21:00 cron, after the 20:30 cron has run
+outbox_count=$(ls -1 ~/.hermes/cron/outbox/toutiao/*.html 2>/dev/null | wc -l)
+last_status=$(python3 -c "import json; j=json.load(open('$HOME/.hermes/cron/jobs.json')); print([x for x in j['jobs'] if 'toutiao' in x.get('name','')][0]['last_status'])")
+if [ "$outbox_count" -ge 3 ] && [ "$last_status" = "ok" ]; then
+    echo "⚠️ 头条 cron last_status=ok but outbox has $outbox_count files — likely masked failure"
+fi
+```
+
+### Detection recipe for a fresh agent
+
+When you see `last_status: "ok"` on a content cron, **don't trust it**. Cross-check:
+
+```bash
+# What the scheduler says:
+python3 -c "import json; j=json.load(open('$HOME/.hermes/cron/jobs.json')); print([x for x in j['jobs'] if 'toutiao' in x.get('name','')][0]['last_status'])"
+
+# What the outbox says actually happened:
+ls -1 ~/.hermes/cron/outbox/toutiao/*.html 2>/dev/null | wc -l
+```
+
+If `last_status: "ok"` but outbox has ≥3 files dated after the last successful run → masked failure. Treat as `last_status: "error"` for any escalation logic. Don't tell the user "the cron is healthy, no action needed" without checking this.
+
+### Updated pitfall (added to SKILL.md)
+
+> **`last_status: "ok"` is misleading when graceful-degradation fallback is in place.** A content cron that fails email delivery, saves to outbox, and exits 0 will show `last_status: "ok"` in `jobs.json`. Always cross-check `last_status` against `ls -1 ~/.hermes/cron/outbox/<platform>/*.html | wc -l` — if outbox grew but `last_status` is "ok", the failure was masked. Either modify the script to `sys.exit(1)` on send failure (preferred), or add an external health check that reconciles scheduler view vs outbox state.
+
+### Updated report template for chronic-outage + masked-failure cycles
+
+When both conditions hold (chronic outage ≥10 nights AND `last_status` is masked), the report should include a section flagging the masking with the actual `jobs.json` `last_status` value quoted, plus the outbox count. This is the only way the user (or a future fresh agent) learns that the scheduler's green light is misleading.
+
+```
+4. ⚠️ 监控盲区提示：cron jobs.json 显示 last_status=ok（第N天连续），
+   但 outbox/toutiao/ 实际有 M 个备份文件。脚本优雅降级保存HTML后
+   exit 0，导致调度器看不到失败。建议在 send_email() 失败时
+   sys.exit(1)，让 last_status 真实反映送达状态。
+```
 
 ## Same-outage detection (added 2026-09-09, failure #16)
 
@@ -84,12 +181,15 @@ Two refinements that let a fresh cron-session agent skip the diagnostic loop whe
 | 2026-09-11 | 18 | Pure Case H dispatch — same symptom, same auth code. No new lesson. |
 | 2026-09-12 | 19 | Pure Case H dispatch — outbox 36 files. No new lesson. |
 | 2026-09-13 | 20 | Case L — manual probe on BOTH transports (465 SSL and 587 STARTTLS) confirmed both surface the **same explicit 535 line** (not just disconnects). At N=20 the manual probe is purely ceremonial confirmation; the report can be the terse Case H template plus the day's generated title, nothing more. |
+| 2026-09-14 | 21 | Case M — `last_status=ok` cron-masking discovery. Outbox-count 38 + README "持续中 第20天" = no probe, terse report. The genuinely new lesson is structural: graceful-degradation fallback (outbox save + exit 0) makes `jobs.json` `last_status: "ok"` even though email has not delivered in 21 nights. The scheduler's health view is decoupled from delivery success. Two fixes: (1) `sys.exit(1)` on send failure in the script (preferred), or (2) add external outbox-vs-last_status reconciliation check. See `cron-job-debugging` SKILL.md Case M for the full recipe + report template addition. |
 
 **Decision rule at N≥10:** skip the diagnostic loop entirely. The credential state has not changed in over a week. The outbox has today's content. Report = outbox path + the one-line fix. Don't re-run `probe_smtp.py`, don't paste transcripts, don't suggest port 587.
 
 **Decision rule at session start, before any SMTP work:** run the outbox-count check (`ls -1 ~/.hermes/cron/outbox/<platform>/*.html | wc -l`) — if ≥3, you're looking at a known chronic outage, jump straight to the Case H dispatch pattern. Saves the user from another 30s of probe output for a problem that's already been diagnosed N times.
 
 **Decision rule at N≥20:** the manual probe is now ceremonial. ONE line from the manual AUTH LOGIN recipe (the `password -> 535:` line) is enough to confirm the outage is unchanged. Don't paste the full transcript, don't run port 587 in parallel, don't list alternative transports — the user has seen all of that 19 times. The report should be: today's generated title + outbox path + the one-line fix command + failure count. That is the entire value-add at N=20.
+
+**Decision rule at N≥20 + masked `last_status`:** ALSO include the masking warning section in the report (Case M template). Without it, a fresh agent querying cron health will see green lights and conclude nothing is wrong.
 
 ## Cross-script triage grep (added 2026-09-08, failure #15)
 
@@ -151,13 +251,15 @@ The trigger for going *back* to the 4-line Case H shape (rather than this hybrid
      xargs -I {} mv {} ~/.hermes/cron/outbox/toutiao/$(date +%Y-%m)_archive/
    ```
 
+**AND, if you want to fix the `last_status` masking too**: edit `~/.hermes/cron/scripts/toutiao-article-daily.py` so that `main()` calls `sys.exit(1)` after a failed `send_email()` (while still saving to outbox first). Then `last_status` will reflect reality and any monitoring/dashboard check will surface the outage correctly even before the user notices.
+
 ## Why the fix hasn't happened yet
 
 Most likely: the user is either away from the QQ-registered phone (so step 4 SMS can't be received), or has deprioritized this cron relative to other work. The cron does its job (content is generated and backed up locally), so the failure is invisible to anyone not watching the destination mailbox.
 
 ## Scripts involved (all share the same `iylylmwnitbbbebi` credential — all fail together, only one update to recover them all)
 
-- `~/.hermes/cron/scripts/toutiao-article-daily.py` — has working outbox-fallback pattern (Case C reference implementation)
+- `~/.hermes/cron/scripts/toutiao-article-daily.py` — has working outbox-fallback pattern (Case C reference implementation), but does NOT `sys.exit(1)` on send failure (Case M masking pitfall)
 - `~/.hermes/cron/scripts/config_loader.py` — `get_mail_config()` reads from `config.yaml`; YAML is the canonical source, not env vars
 - `~/.hermes/cron/config/config.yaml` — line that needs editing: `smtp_pass`
 
@@ -170,15 +272,15 @@ Most likely: the user is either away from the QQ-registered phone (so step 4 SMS
 - `~/.hermes/cron/scripts/xhs-escape-weekend.py`
 - `~/.hermes/cron/scripts/bithappy_email_pro.py`
 
-The shared `_email_helpers.py` extraction (proposed in Case C, repeated in E + F + G + H + I + J) remains the overdue refactor — until it lands, each script silently drops its content instead of saving to outbox when SMTP breaks. Per Case E, a third-party transactional mail relay (Resend / SMTP2GO / SendGrid) with a static API key is the migration that would permanently end this weekly revocation cycle.
+The shared `_email_helpers.py` extraction (proposed in Case C, repeated in E + F + G + H + I + J + M) remains the overdue refactor — until it lands, each script silently drops its content instead of saving to outbox when SMTP breaks. Per Case E, a third-party transactional mail relay (Resend / SMTP2GO / SendGrid) with a static API key is the migration that would permanently end this weekly revocation cycle.
 
-## Today's run (2026-09-09, failure #16)
+## Today's run (2026-09-14, failure #21)
 
-- **Generated**: 长文《63岁大伯给侄子出了20万学费，侄子毕业后第一件事是'断了联系'》（亲戚恩怨方向）+ 微头条《大伯供我上大学...屏蔽》+ 《我65岁，存款30万...不够养老》
-- **HTML backup**: `~/.hermes/cron/outbox/toutiao/20260909_2030_亲戚恩怨.html` (27 KB)
-- **SMTP attempt**: 535 at 0.62s wall-clock, identical transcript to failure #14
-- **Failure report delivered to user chat (hybrid Case H shape)**.
-- **No new diagnostic content** — this run was a pure Case H dispatch per the Case J session-start detection rule.
+- **Generated**: 长文《67岁老人被三个儿子轮流养老，每家住四个月，第三家说"住够了"》（赡养义务方向）+ 微头条《我65岁，存款30万...不够养老》+ 《我儿子一年给我打5个电话...喝多了》
+- **HTML backup**: `~/.hermes/cron/outbox/toutiao/20260914_2031_赡养义务.html` (27 KB). Note: TWO files were written at 2030 and 2031 because the cron agent ran the script twice (once via the cron-scheduled prompt, once via direct invocation from this session — same content, different timestamps).
+- **SMTP probe**: NOT run (outbox-count was 38 + README said "持续中 第20天" = known same-outage, Case J detection rule applied).
+- **`jobs.json` masking confirmed**: `last_status: "ok"`, `repeat.completed: 109`, `last_delivery_error: "Feishu send failed: [99992402] field validation failed"` (the Feishu error is a separate channel, not email — but illustrates that the scheduler is reporting partial info correctly while the email channel's complete failure is invisible at the `last_status` level).
+- **Failure report delivered**: Case L template (generate / deliver / fix) + cross-script blast-radius callout + new `last_status` masking warning. First report to explicitly flag the `last_status` discrepancy.
 
 ## Case L — 20th consecutive identical SMTP failure: both transports now confirmed to surface explicit 535 (2026-09-13)
 
@@ -210,16 +312,13 @@ The user delivered a 3-section report:
 
 This is the canonical N=20 template. Skipped (correctly): SMTP transcript, port-587 alt-transport suggestion, `probe_smtp.py` re-run, full diagnostic loop enumeration, cross-script blast-radius tally (the Case J triage grep already covers that for any fresh agent).
 
-### Today's run (2026-09-13, failure #20)
-
-- **Generated**: 长文《72岁老人存了40万，遗嘱写好两年，去世后三个子女差点打起来》（遗产分配方向）+ 微头条《大伯供我上大学...屏蔽》+ 《我65岁，存款30万...不够养老》
-- **HTML backup**: `~/.hermes/cron/outbox/toutiao/20260913_2030_遗产分配.html` (27 KB)
-- **SMTP probe (ceremonial)**: manual AUTH LOGIN on both 465 and 587 → both surface the identical explicit 535 reply in ~0.6s. Credential state unchanged since 2026-08-25.
-- **Outbox size**: 36 HTML files, ~810 KB cumulative
-- **Failure report delivered**: 3-section Case L template (generate / deliver / fix). No new diagnostic content beyond Case J + Case L refinement.
-
 ### When the user finally fixes it — the consolidated post-outage checklist
 
 When `iylylmwnitbbbebi` is finally replaced with a fresh authorization code (likely via QQ web UI per the verbatim steps in the "The fix" section above), the recovery is a single config edit that unblocks **all** the scripts listed in the "Other scripts that would fail identically today" section — six content-platform scripts total, not just `toutiao-article-daily.py`. The `_email_helpers.py` extraction remains the overdue refactor that would prevent future chronic outages by making credential rotation a single-file change.
+
+After the user fixes the credential, also:
+1. Apply the Case M `sys.exit(1)` patch to `toutiao-article-daily.py` so `last_status` is honest.
+2. Verify by reading `jobs.json` after one cron run — `last_status` should be `"error"` for the next run (the first run with the new code), then `"ok"` thereafter.
+3. Update `~/.hermes/cron/outbox/toutiao/README.md` with an "Outage resolved" entry — see `references/outage-readme-template.md` for the template.
 
 Until that lands, the operating assumption for any cron session touching `smtp.qq.com:465` or `smtp.qq.com:587` with `569545015@qq.com` is: **the credential is dead, the outbox has today's content, the user has been told N times, the report should not re-explain.** Anything more is noise.

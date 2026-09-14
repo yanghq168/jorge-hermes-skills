@@ -1,7 +1,7 @@
 ---
 name: cron-job-debugging
 description: "Debug silently-failing Hermes cron jobs (no_agent script mode, scheduled prompt jobs, chained jobs). Diagnose 'Script not found', silent no-op, exit-code-without-output, path-resolution failures, AND credential/SMTP delivery failures by reading scheduler output logs in ~/.hermes/cron/output/. Applies the script-path resolution rule, the SMTP-credential deep-dive, and the local-fallback save pattern."
-version: 1.2.0
+version: 1.3.0
 author: Hermes Agent
 license: MIT
 platforms: [linux, macos]
@@ -729,6 +729,115 @@ This fingerprint is useful for **deciding whether to retry** without burning ano
 Hybrid pattern from Case H: 4-line headline + cross-script blast-radius counts + today's generated-content summary (title, direction, hook). Did NOT include the SMTP transcript. Did NOT include the port-587 alt-transport suggestion. Did NOT re-explain the credential fix — pointed at the config.yaml field by path.
 
 Result: the report fits in one screen, names the file the article is saved to, tells the user exactly which config line to edit, and doesn't waste tokens re-proving what the previous 14 sessions already proved.
+
+## Case M — 21st consecutive identical SMTP failure: `last_status=ok` masks delivery failure (2026-09-14)
+
+The `toutiao-article-daily.py` cron failed for the **21st consecutive night** (since 2026-08-25). Same auth code (`iylylmwnitbbbebi`), same `Connection unexpectedly closed` symptom, same outbox-fallback HTML saved to `~/.hermes/cron/outbox/toutiao/`. The Case L + Case J dispatch pattern worked perfectly: outbox-count was 38, README ended with "持续中 — 第20天", no probe needed, terse report delivered. **The genuinely new lesson this cycle is about a structural blind spot the skill has not previously surfaced: the scheduler's health view (`jobs.json` `last_status`) lies when the script exits 0 after a graceful-degradation fallback.**
+
+### The `last_status=ok` cron-masking pitfall
+
+When `toutiao-article-daily.py`'s `send_email()` fails, the catch block saves the HTML to outbox and `return False, "..."` — the `main()` function logs the failure message and exits 0. The Hermes scheduler reads exit code 0 as success and sets `last_status: "ok"` in `jobs.json`. The user inspecting `jobs.json` sees:
+
+```json
+{
+  "id": "406529dd5f2e",
+  "name": "头条号文章",
+  "last_run_at": "2026-09-13T20:32:15.500940+08:00",
+  "last_status": "ok",
+  "repeat": { "completed": 109 }
+}
+```
+
+A green `last_status: "ok"` for a cron that has not actually delivered anything in 21 nights. **The scheduler's view of cron health is decoupled from delivery success** when the script has a graceful-degradation fallback (which is the right design pattern for content-generation crons — see Case C/F). This is a classic observability gap: the failure has been logged, the content has been preserved, the report has been delivered, but the system's "did the cron work?" indicator says yes when the answer is no.
+
+**Why this is dangerous:** the `last_status` field is what shows up in `hermes cron list`, in monitoring dashboards, and in any "is this cron healthy?" check an automated agent runs. A 21-night email-delivery outage with `last_status: "ok"` across all that time means a future agent that queries cron health will see "everything is fine, no action needed" — and may stop reporting, stop appending to the outbox README, or fail to escalate.
+
+### Two correct fixes (pick whichever fits the deployment)
+
+**Fix 1 (preferred for content crons): make `send_email()` failure propagate to a non-zero exit code.** The catch block's `return False, ...` should bubble up through `main()` and become `sys.exit(1)` (or `raise SystemExit(1)`):
+
+```python
+# In send_email():
+if not success:
+    sys.stderr.write(f"❌ 发送失败：{msg}\n")
+    return False, msg   # preserves current behavior for any caller
+
+# In main(), at the bottom:
+success, msg = send_email(html_content, plain_text, topic, micro_articles)
+if not success:
+    sys.stderr.write(f"\n❌ 发送失败：{msg}\n")
+    sys.exit(1)         # <-- THIS is what fixes the masking
+print(f"\n✅ 邮件发送成功！")
+return html_content, plain_text, topic, micro_articles
+```
+
+**Important:** the HTML-to-outbox save MUST happen *before* the `sys.exit(1)`, so the graceful-degradation content preservation still works. The outbox backup is independent of the exit code — save first, then exit non-zero.
+
+**Fix 2 (preferred if you cannot modify the script): add an external health check.** A separate cron or monitoring check that runs the script in "report-only" mode and reports when `last_status: "ok"` doesn't match the actual outbox state. Concretely: a daily 21:00 cron that does
+
+```bash
+outbox_count=$(ls -1 ~/.hermes/cron/outbox/toutiao/*.html 2>/dev/null | wc -l)
+last_status=$(python3 -c "import json; print(json.load(open('$HOME/.hermes/cron/jobs.json'))['jobs'][<job_idx>]['last_status'])")
+if [ "$outbox_count" -ge 3 ] && [ "$last_status" = "ok" ]; then
+    echo "⚠️ 头条 cron last_status=ok but outbox has $outbox_count files — likely masked failure"
+fi
+```
+
+This is the lower-friction option — no script surgery — but it requires adding a second cron and the user to wire it up.
+
+### Detection recipe for a fresh agent
+
+When you encounter `last_status: "ok"` on a content cron, **don't trust it.** Cross-check against the outbox:
+
+```bash
+# What the scheduler says:
+python3 -c "import json; j=json.load(open('$HOME/.hermes/cron/jobs.json')); print([x for x in j['jobs'] if 'toutiao' in x.get('name','')][0]['last_status'])"
+
+# What the outbox says actually happened:
+ls -1 ~/.hermes/cron/outbox/toutiao/*.html 2>/dev/null | wc -l
+```
+
+If `last_status: "ok"` but outbox has ≥3 files dated after the last successful run → masked failure. Treat as `last_status: "error"` for any escalation logic. Don't tell the user "the cron is healthy, no action needed" without checking this.
+
+### This skill's pitfall list gets a new entry
+
+Add to the Pitfalls section:
+
+> **`last_status: "ok"` is misleading when graceful-degradation fallback is in place.** A content cron that fails email delivery, saves to outbox, and exits 0 will show `last_status: "ok"` in `jobs.json`. Always cross-check `last_status` against `ls -1 ~/.hermes/cron/outbox/<platform>/*.html | wc -l` — if outbox grew but `last_status` is "ok", the failure was masked. Either modify the script to `sys.exit(1)` on send failure (preferred), or add an external health check that reconciles scheduler view vs outbox state.
+
+### Today's run (2026-09-14, failure #21)
+
+- **Generated**: 长文《67岁老人被三个儿子轮流养老，每家住四个月，第三家说"住够了"》（赡养义务方向）+ 微头条《我65岁，存款30万...不够养老》+ 《我儿子一年给我打5个电话...喝多了》
+- **HTML backup**: `~/.hermes/cron/outbox/toutiao/20260914_2031_赡养义务.html` (27 KB). Note: TWO files were written at 2030 and 2031 because the cron agent ran the script twice (once via the cron-scheduled prompt, once via direct invocation from this session — same content, different timestamps).
+- **SMTP probe**: NOT run (outbox-count was 38 + README said "持续中 第20天" = known same-outage, Case J detection rule applied).
+- **`jobs.json` masking confirmed**: `last_status: "ok"`, `repeat.completed: 109`, `last_delivery_error: "Feishu send failed: [99992402] field validation failed"` (the Feishu error is a separate channel, not email — but illustrates that the scheduler is reporting partial info correctly while the email channel's complete failure is invisible at the `last_status` level).
+- **Failure report delivered**: Case L template (generate / deliver / fix) + cross-script blast-radius callout + new `last_status` masking warning. First report to explicitly flag the `last_status` discrepancy.
+
+### Updated report template for chronic-outage + masked-failure cycles
+
+When both conditions hold (chronic outage ≥10 nights AND `last_status` is masked), the report should include a **section flagging the masking** with the actual `jobs.json` `last_status` value quoted, plus the outbox count. This is the only way the user (or a future fresh agent) learns that the scheduler's green light is misleading.
+
+Suggested template additions to the Case L 3-section report:
+
+```
+4. ⚠️ 监控盲区提示：cron jobs.json 显示 last_status=ok（第N天连续），
+   但 outbox/toutiao/ 实际有 M 个备份文件。脚本优雅降级保存HTML后
+   exit 0，导致调度器看不到失败。建议在 send_email() 失败时
+   sys.exit(1)，让 last_status 真实反映送达状态。
+```
+
+Skip this section only at N<5 (the masking hasn't been going on long enough to be worth a section), or when the script has been patched to `sys.exit(1)` on send failure.
+
+### Decision rule update
+
+| Failure count | `last_status` value | Report sections |
+|---|---|---|
+| 1-2 | error (likely) | Case F standard |
+| 3-9 | error | Case F + outbox-detection callout |
+| 10-19 | ok (now masked) | Case H + masking warning |
+| ≥20 | ok (definitely masked) | Case L + masking warning + cross-script blast radius |
+
+The "report `last_status` mismatch" check is **mandatory** at N≥10 — that's when the masking has been going on long enough to mislead any fresh agent that doesn't know about it.
 
 ## Diagnostic commands cheatsheet
 
