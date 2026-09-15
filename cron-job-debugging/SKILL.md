@@ -409,6 +409,19 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   exists but not actually be the one firing, or vice versa. The log dir
   `~/.hermes/cron/output/<job_id>/` only exists for Hermes-scheduler runs.
 
+- **`crontab.txt` is invisible to the Hermes health view.** Classic cron
+  fires the script, the script writes to `toutiao-article-daily.log` (the
+  redirect target), and `jobs.json` is never touched. So `jobs.json`'s
+  `last_run_at` / `last_status` only reflects Hermes-scheduler runs of the
+  script — classic cron is a parallel universe the scheduler can't see.
+  Detection recipe for "is classic cron firing?": compare
+  `ls -t ~/.hermes/cron/outbox/<platform>/*.html | head -1 | xargs stat -c %y`
+  (outbox mtime, fires under either scheduler) against
+  `python3 -c "import json; j=json.load(open('$HOME/.hermes/cron/jobs.json')); ..."`
+  (Hermes-side timestamp). If outbox is newer than Hermes's last run, classic
+  cron fired in between. This is the only way to detect double-fires when
+  the same script is registered under both.
+
 - **`outbox/<platform>/README.md` is the durable outage log; extend it
   on every failed night, don't rewrite.** When a cron has been failing
   for ≥3 consecutive nights, append a `## YYYY-MM-DD（持续中 — 第N天）`
@@ -838,6 +851,112 @@ Skip this section only at N<5 (the masking hasn't been going on long enough to b
 | ≥20 | ok (definitely masked) | Case L + masking warning + cross-script blast radius |
 
 The "report `last_status` mismatch" check is **mandatory** at N≥10 — that's when the masking has been going on long enough to mislead any fresh agent that doesn't know about it.
+
+```
+
+## Case N — 22nd consecutive identical SMTP failure: classic cron vs Hermes cron — which one is firing? (2026-09-15)
+
+The `toutiao-article-daily.py` cron failed for the **22nd consecutive night** (since 2026-08-25). Same auth code (`iylylmwnitbbbebi`), same `Connection unexpectedly closed` symptom, same Case H/L terse-dispatch pattern. The fresh lesson this cycle is about **which scheduler actually fired the cron** — and the answer is "both, independently, with no shared observability."
+
+### The discovery
+
+A casual `crontab -l` revealed classic-cron entries that look like this:
+
+```
+# 20:30 - 头条文章
+30 20 * * * python3 /home/ubuntu/.hermes/cron/scripts/toutiao-article-daily.py >> /home/ubuntu/.hermes/cron/logs/toutiao-article-daily.log 2>&1
+```
+
+This is the actual firing path for `toutiao-article-daily.py`. The Hermes scheduler (`jobs.json`) ALSO has an entry for it (Case G was triggered by an agent-mode prompt cron), and both fire at 20:30. **The cron-output / `jobs.json` view only tells you about the Hermes side; classic-cron runs are invisible to it.** This matters because:
+
+- The `toutiao-article-daily.log` (classic cron) and `~/.hermes/cron/output/<job_id>/<timestamp>.md` (Hermes) write to different locations and have different formats.
+- A grep of `jobs.json` for "toutiao" returns a record with `last_status: "ok"` and `last_run_at: <today>` — looks healthy from the Hermes side.
+- But classic cron also fired at 20:30, produced a fresh HTML in `outbox/toutiao/`, and exited 0 (graceful-degradation per Case C). From the user's perspective the cron "ran," but neither scheduler can tell you "delivery failed."
+- Outbox count now at 40+ HTML files, ~28 KB each, ~1.1 MB cumulative. By the time the user fixes the auth code, there's a non-trivial cleanup job to do.
+
+### Detection recipe: which scheduler fired today?
+
+```bash
+# 1. Outbox (fires under EITHER scheduler — neutral ground)
+NEWEST_OUTBOX=$(ls -t ~/.hermes/cron/outbox/toutiao/*.html | head -1)
+NEWEST_OUTBOX_MTIME=$(stat -c %Y "$NEWEST_OUTBOX")
+echo "Outbox newest: $NEWEST_OUTBOX ($(date -d @$NEWEST_OUTBOX_MTIME))"
+
+# 2. Classic-cron log (only fires under classic cron)
+NEWEST_CRONLOG=$(ls -t ~/.hermes/cron/logs/toutiao-article-daily.log 2>/dev/null | head -1)
+if [ -n "$NEWEST_CRONLOG" ]; then
+    CRONLOG_MTIME=$(stat -c %Y "$NEWEST_CRONLOG")
+    echo "Cron log: $NEWEST_CRONLOG ($(date -d @$CRONLOG_MTIME))"
+fi
+
+# 3. Hermes-side scheduler view (only fires under Hermes)
+python3 -c "
+import json
+j = json.load(open('$HOME/.hermes/cron/jobs.json'))
+for job in j.get('jobs', []):
+    if 'toutiao' in job.get('name', '').lower():
+        print(f\"Hermes job {job['id'][:8]}: last_run={job.get('last_run_at')}, last_status={job.get('last_status')}\")
+"
+```
+
+If `NEWEST_OUTBOX_MTIME > hermes_last_run_at`, classic cron fired in between. If the cron log is empty, Hermes fired (writes to its own `output/` tree, not the redirect target). If both fired, expect TWO outbox files from the same night — distinguished by their `HHMM` suffix in the filename.
+
+### Why this matters for failure reports
+
+When the report says "the cron failed for the Nth consecutive night," the user assumes "the cron" is a single thing. It's not. It's two separate scheduling systems with overlapping coverage and no shared failure counter. The right way to communicate this:
+
+```
+📋 头条文章日报 - 2026-09-15（第22天失败）
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✅ 内容生成：成功（outbox 备份在 toutiao/20260915_2031_亲戚恩怨.html, 27KB）
+❌ 邮件送达：失败（QQ SMTP 535，auth code iylylmwnitbbbebi）
+🔧 修复：mail.qq.com → 设置 → 账户 → 重新生成 SMTP 授权码 → 写回
+        ~/.hermes/cron/config/config.yaml
+📊 调度器状态：
+   - crontab.txt (classic): 今晚 20:30 触发，exit 0，掩盖了失败
+   - jobs.json (Hermes): last_status=ok，掩盖了失败
+   - outbox/toutiao/: 40 个备份文件，~1.1 MB
+💡 建议：脚本 send_email() 失败时改用 sys.exit(1)，让两个调度器
+   都看到真实的失败状态（详见 cron-job-debugging Case M）
+```
+
+Note that the report explicitly calls out both schedulers' masking — neither is the source of truth on its own.
+
+### Cleanup after the credential is fixed
+
+When the user finally regenerates the auth code and the cron starts succeeding, the cleanup is the same as Case G but applies to both scheduler outputs:
+
+```bash
+# Archive outbox HTMLs (preserve last 3 for the user's reference)
+mkdir -p ~/.hermes/cron/outbox/toutiao/$(date +%Y-%m)_archive
+ls -t ~/.hermes/cron/outbox/toutiao/*.html | tail -n +4 | \
+    xargs -I {} mv {} ~/.hermes/cron/outbox/toutiao/$(date +%Y-%m)_archive/
+
+# Append outage-resolved entry to README
+cat >> ~/.hermes/cron/outbox/toutiao/README.md <<EOF
+
+## YYYY-MM-DD（已恢复）
+- Outage duration: 2026-08-25 → <fix-date> (NN nights)
+- Root cause: QQ SMTP auth code iylylmwnitbbbebi revoked
+- Fix: user regenerated auth code in QQ web UI, updated config.yaml
+- Verified: crontab.txt (classic) and jobs.json (Hermes) both show ✅ next night
+- Cleanup: archived <N> HTML files to outbox/toutiao/<YYYY-MM>_archive/
+EOF
+```
+
+The README entry is the durable cross-session record. Future sessions grepping the outbox for "is this a known outage?" will see "已恢复" and skip the full diagnostic loop.
+
+### Decision rule refinement for chronic-outage cycles at N≥20
+
+| Failure count | `last_status` | Scheduler mask? | Outbox count | Report sections |
+|---|---|---|---|---|
+| 1-2 | error | No | 1-2 | Case F standard |
+| 3-9 | error | No | 3-9 | Case F + outbox-detection callout |
+| 10-19 | ok (Hermes-side mask) | Single (Hermes only) | 10-19 | Case H + masking warning |
+| 20-29 | ok | **Double (Hermes + classic)** | 20-29 | Case L + masking warning + scheduler-aware diagnosis |
+| ≥30 | ok | Double + sustained | ≥30 | Case L + scheduler diagnosis + runbook entry suggestion |
+
+At N≥20 the question "which scheduler fired?" becomes operationally relevant because the cleanup recipe differs by scheduler (Hermes `output/` cleanup vs classic `logs/` cleanup vs outbox cleanup). The outbox is the only neutral ground — clean it last after both scheduler trees are confirmed quiet.
 
 ## Diagnostic commands cheatsheet
 
