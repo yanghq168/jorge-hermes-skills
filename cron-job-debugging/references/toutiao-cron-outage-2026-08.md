@@ -2,7 +2,7 @@
 
 A real recurring failure on this Hermes deployment, captured for future sessions to recognize instantly.
 
-**Current status (2026-09-14): 21 consecutive nights, credential `iylylmwnitbbbebi` revoked by QQ anti-spam, outbox has 38 HTML files, `jobs.json` shows `last_status: "ok"` (masked — see "Outbox-count vs scheduler view" below).**
+**Current status (2026-09-19): 25 consecutive nights, credential `iylylmwnitbbbebi` revoked by QQ anti-spam, outbox has ~40+ HTML files, `jobs.json` shows `last_status: "ok"` (masked — see "Outbox-count vs scheduler view" below).**
 
 ## What's broken
 
@@ -182,6 +182,7 @@ Two refinements that let a fresh cron-session agent skip the diagnostic loop whe
 | 2026-09-12 | 19 | Pure Case H dispatch — outbox 36 files. No new lesson. |
 | 2026-09-13 | 20 | Case L — manual probe on BOTH transports (465 SSL and 587 STARTTLS) confirmed both surface the **same explicit 535 line** (not just disconnects). At N=20 the manual probe is purely ceremonial confirmation; the report can be the terse Case H template plus the day's generated title, nothing more. |
 | 2026-09-14 | 21 | Case M — `last_status=ok` cron-masking discovery. Outbox-count 38 + README "持续中 第20天" = no probe, terse report. The genuinely new lesson is structural: graceful-degradation fallback (outbox save + exit 0) makes `jobs.json` `last_status: "ok"` even though email has not delivered in 21 nights. The scheduler's health view is decoupled from delivery success. Two fixes: (1) `sys.exit(1)` on send failure in the script (preferred), or (2) add external outbox-vs-last_status reconciliation check. See `cron-job-debugging` SKILL.md Case M for the full recipe + report template addition. |
+| 2026-09-19 | 25 | Case O — outbox README is the load-bearing cross-session signal; read it before any probe. Three concrete lessons: (1) the README at `~/.hermes/cron/outbox/<platform>/README.md` contains more authoritative context than any probe, so `read_file` it first; (2) at N≥10 do NOT inline the full article in the failure report — outbox path only, the article has been on disk for weeks; (3) `cd scripts && python3 -c "from module import X"` fails for cron scripts without `__init__.py`, use the Case G `importlib.util.spec_from_file_location` recipe instead. Today's run violated rule (2) by pasting 1500 words of article HTML inline — that's exactly the behavior Case H prohibits. Updated the N≥10 / N≥20 decision rules to add an N≥25 row. |
 
 **Decision rule at N≥10:** skip the diagnostic loop entirely. The credential state has not changed in over a week. The outbox has today's content. Report = outbox path + the one-line fix. Don't re-run `probe_smtp.py`, don't paste transcripts, don't suggest port 587.
 
