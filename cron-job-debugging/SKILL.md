@@ -828,6 +828,21 @@ Add to the Pitfalls section:
 
 - **At N≥10 the failure report IS the troubleshooting report; budget its length accordingly.** A chronic-outage cron at N≥10 produces one report per night that serves as both the user-facing notification AND the only debugging signal for fresh agents next session. If the report inlines 1500 words of generated article + 6 image prompts + cross-script blast radius + masking diagnosis + fix instructions, it consumes both user attention and the next agent's `read_file` budget when they re-read the outbox README (Case O). Case H says 4 lines; at N≥25 (failure #26 case study in Case P) terse + blast radius was the right shape; at N≥28 (today) the entire report should fit on one screen — outbox path, count, config field, one-line fix. The detailed report shape exists to keep the agent honest about what it did; the user-facing report should be the absolute minimum that lets them fix it. Diff against an actual reporter too: extra sections like "verification commands the user can copy-paste" are useful at N=1–5 and pure noise at N≥25.
 
+- **The "fresh agent" anti-pattern: ignoring the skill itself and re-running the diagnostic loop from scratch (2026-09-22, failure #28).** This skill has Cases A through P documenting 27+ nights of identical failure on `toutiao-article-daily.py` for QQ SMTP auth code `iylylmwnitbbbebi`. A fresh cron-session agent loaded this skill, saw the body, and STILL:
+  (1) ran `python3 ~/.hermes/cron/scripts/toutiao-article-daily.py` directly three times (each run produced a different random topic — three outbox files for the same night, none of them the "right" one per the user's prompt direction);
+  (2) ran manual SMTP probes with `smtplib.SMTP_SSL` + `debuglevel=1`, then with a `socket.create_connection` + `ctx = ssl.create_default_context()` recipe, then a port-587 STARTTLS attempt — burning ~6 terminal calls and producing transcripts already documented in Case I;
+  (3) never ran `ls -1 ~/.hermes/cron/outbox/toutiao/*.html | wc -l` to detect the chronic outage (would have shown ~50 files instantly);
+  (4) never `read_file ~/.hermes/cron/outbox/toutiao/README.md` (Case O's "FIRST action");
+  (5) delivered a verbose failure report with generated content title + hook + 2 微头条 headlines + 6 image prompts inline (Case O lesson 2: NO at N≥10);
+  (6) never appended a "## YYYY-MM-DD（持续中 — 第N天）" entry to the outbox README (Case H durable action).
+
+  **The fix is structural, not diagnostic:** when you load this skill and the cron is `toutiao-article-daily.py` (or any of the documented chronic-outage crons), the FIRST THREE actions are MANDATORY and UNCONDITIONAL — no "but maybe this time it's different," no "let me confirm with a probe":
+  1. `ls -1 ~/.hermes/cron/outbox/<platform>/*.html 2>/dev/null | wc -l` — if ≥3, chronic outage.
+  2. `read_file ~/.hermes/cron/outbox/<platform>/README.md` — if it ends with "持续中" and no "已恢复", the diagnosis is done; the user just hasn't fixed it.
+  3. `hermes cron list --all` (or read `~/.hermes/cron/jobs.json`) — confirm `last_status` is masked per Case M, then deliver Case H dispatch.
+
+  **Skip steps 1-5 of the §Diagnostic loop entirely** if the outbox count + README confirms a chronic outage. The probes and transcript dumps exist to teach the diagnostic technique; they are NOT required every night on a documented recurring failure. Reading the skill body is necessary but not sufficient — the agent must also FOLLOW the decision rules it documents. Add to the Case O "load-bearing signal" callout: if you find yourself about to run a probe, first ask "is this probe adding new information?" If the answer is "no, README/Case I already documented this exact 535 transcript," delete the probe.
+
 
 
 - **Generated**: 长文《67岁老人被三个儿子轮流养老，每家住四个月，第三家说"住够了"》（赡养义务方向）+ 微头条《我65岁，存款30万...不够养老》+ 《我儿子一年给我打5个电话...喝多了》
