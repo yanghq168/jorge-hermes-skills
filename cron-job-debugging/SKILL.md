@@ -743,6 +743,74 @@ Hybrid pattern from Case H: 4-line headline + cross-script blast-radius counts +
 
 Result: the report fits in one screen, names the file the article is saved to, tells the user exactly which config line to edit, and doesn't waste tokens re-proving what the previous 14 sessions already proved.
 
+## Case R — 31st consecutive identical SMTP failure: agent-mode crons need exactly ONE run, plus credential-path trap (2026-09-24)
+
+The `toutiao-article-daily.py` cron failed for the **31st consecutive night** (since 2026-08-25). Same auth code (`iylylmwnitbbbebi`), same `Connection unexpectedly closed`, same Case H/O/Q dispatch. Two genuine refinements this cycle that future fresh agents will hit:
+
+### Lesson 1 — Agent-mode crons need exactly one run; classic-cron crons need zero
+
+The Case Q lesson ("run the cron script AT MOST ONCE per cron cycle") was stated in absolute terms, but this session revealed a **reversal** worth capturing: when the cron fires through an agent-mode prompt (the agent IS the cron run), there is no pre-existing outbox backup. The agent must run the script once to *generate* today's content. The rule is more precise than "zero runs":
+
+| Scheduler mode | Pre-existing outbox backup? | Required run count | Why |
+|---|---|---|---|
+| Classic cron (`crontab.txt`) | Yes — fired at 20:30, wrote HTML before the agent session | 0 | Use the existing `PENDING_<date>.html` symlink target |
+| Hermes no_agent script-mode | Yes — fired at 20:30, wrote HTML before the agent session | 0 | Same as classic |
+| **Hermes agent-mode prompt** | **No — the agent IS the run** | **1** | The cron "succeeded" by the time the agent runs; agent must execute the script to produce today's content |
+
+The trap on agent-mode crons is the OPPOSITE of Case Q's anti-pattern: you can't follow the rule literally ("don't run the script") because there is no existing content. The correct behavior is:
+
+1. **`read_file ~/.hermes/cron/outbox/<platform>/README.md` first** (Case O). Confirm chronic outage.
+2. **`ls -t ~/.hermes/cron/outbox/<platform>/*.html | head -1`** — check the newest backup's mtime. If it's dated today and was written by a recent cron run, DO NOT re-run. If the newest is yesterday (or before), you ARE the cron run for today — execute the script ONCE, then stop.
+3. **After one run, STOP.** Do not re-run "to confirm" or "to try a different topic." Each re-run generates a different random topic AND a different outbox file (Case Q lesson 3). One run → one backup → one `PENDING_<date>.html` symlink target → one failure report.
+
+This refinement makes the Case Q rule precise instead of absolutist. The meta-rule is: **match the run count to the scheduler mode, default to zero, allow one only when you are the canonical run for today's date.**
+
+### Lesson 2 — Credential path goes through `config_loader.get_mail_config()`, not directly in `config.yaml`
+
+This session burned ~3 terminal calls trying to find the SMTP credential by `read_file ~/.hermes/cron/config/config.yaml` and grepping the script for `smtp_pass`. Both were wrong paths:
+
+```bash
+# What I tried first (wrong):
+read_file ~/.hermes/cron/config/config.yaml
+# → shows "mail: null" because the cron script reads via config_loader, not directly
+grep smtp_pass ~/.hermes/cron/scripts/toutiao-article-daily.py
+# → finds the local fallback const but not the actual credential path
+```
+
+The right move, one terminal call:
+
+```bash
+cat ~/.hermes/cron/scripts/config_loader.py | grep -A2 smtp_pass
+# → shows the actual yaml key path, e.g. config['mail']['smtp_pass']
+# OR for env-var-backed configs, shows the os.environ fallback
+```
+
+**The rule:** when investigating an SMTP credential failure on a Hermes cron script, the canonical source is whatever the script imports via `from config_loader import get_mail_config`. Don't read `config.yaml` and grep the script independently — read `config_loader.py` first, it tells you the exact YAML key path (or env var name) the credential actually lives at. On this deployment the credential lives at `~/.hermes/cron/config/config.yaml` under `mail.smtp_pass`, but reading `config.yaml` directly returned `mail: None` because `yaml.safe_load` was returning the wrong section — only `config_loader.py`'s `get_mail_config()` returns the correct sub-dict.
+
+### Today's run (2026-09-24, failure #31)
+
+- **Generated**: 长文《65岁老人随了20年份子钱，最后一场酒席没请他：人情薄如纸》（随礼人情方向）+ 微头条《婆婆来家里住了一个月，我瘦了8斤》+ 《我儿子一年给我打5个电话，4次是要钱》
+- **HTML backup**: `~/.hermes/cron/outbox/toutiao/20260924_2030_随礼人情.html` (27 KB) + 1 sibling file at same timestamp (遗产分配) — produced by TWO back-to-back script runs. Lesson 1's "exactly one run" rule now applies retroactively: future sessions on this cron class should not produce a second backup file.
+- **SMTP probe**: NOT run (outbox-count was 64 + README said "持续中 第24天" → extended with 第31天 entry per Case H durable action).
+- **README extension**: done. Added "## 2026-09-24（持续中 — 第31天）" entry pointing at today's backup.
+- **Failure report delivered**: 4-line Case H headline + cross-script blast-radius callout + `last_status=ok` masking warning (Case M template).
+- **What went wrong this cycle**: (a) ran the script twice — should have been once (Lesson 1 anti-pattern violation). (b) wasted 3 terminal calls hunting for the credential in `config.yaml` directly before reading `config_loader.py` (Lesson 2 anti-pattern violation). Both lessons captured above.
+
+### Refined decision rule at N≥31
+
+Combining Cases H, J, L, M, N, O, P, Q, R:
+
+| Failure count | Action |
+|---|---|
+| 1-2 | Full Case F diagnostic + outbox-save confirmation |
+| 3-9 | One confirmation probe + Case F report + outbox-detection callout |
+| 10-19 | Skip probe (README already says it) + Case H terse + outbox path only |
+| ≥20 | Skip probe + Case H terse + masking warning per Case M |
+| ≥25 | Skip probe + terser still + blast-radius count + one-line fix |
+| ≥26 | Same as ≥25, AND commit a `scripts/resend_outbox_html.py` for recovery (Case P) |
+| ≥29 | Same as ≥26, AND (1) frequency-limit-detection patch (avoid rate-limit burn on retries), (2) `PENDING_<date>.html` symlink convention, (3) run at most once per cron cycle (Case Q lesson 3) |
+| **≥31 (today)** | Same as ≥29, AND (1) read `config_loader.py` BEFORE `config.yaml` when hunting for the credential — the loader tells you the exact key path, the YAML may have a top-level null that hides it (Lesson 2), (2) for agent-mode prompt crons, run the script EXACTLY once (you are the canonical run for today); for classic-cron / no_agent script-mode, run ZERO times (the backup already exists) (Lesson 1) |
+
 ## Case M — 21st consecutive identical SMTP failure: `last_status=ok` masks delivery failure (2026-09-14)
 
 The `toutiao-article-daily.py` cron failed for the **21st consecutive night** (since 2026-08-25). Same auth code (`iylylmwnitbbbebi`), same `Connection unexpectedly closed` symptom, same outbox-fallback HTML saved to `~/.hermes/cron/outbox/toutiao/`. The Case L + Case J dispatch pattern worked perfectly: outbox-count was 38, README ended with "持续中 — 第20天", no probe needed, terse report delivered. **The genuinely new lesson this cycle is about a structural blind spot the skill has not previously surfaced: the scheduler's health view (`jobs.json` `last_status`) lies when the script exits 0 after a graceful-degradation fallback.**
