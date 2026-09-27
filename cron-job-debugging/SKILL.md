@@ -490,6 +490,10 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
 
 For the `toutiao-article-daily.py` QQ SMTP outage (20+ nights as of 2026-09-13, identical `Connection unexpectedly closed` every night, auth code `iylylmwnitbbbebi` revoked), see `references/toutiao-cron-outage-2026-08.md`. It contains the verbatim QQ-web-UI fix steps, the outbox cleanup recipe, the terse-report pattern from Case H, and Cases I/J/L for refined probe recipes. **If you see a `Connection unexpectedly closed` on `smtp.qq.com:465` for `569545015@qq.com`, read that file first — the credential is almost certainly already revoked and the outbox already has today's content.**
 
+For Cases S+ (failure #34 onwards, 2026-09-27+), see `references/toutiao-cron-outage-2026-09.md` — the continuation log. The SKILL.md size hit the 100k-character `skill_manage patch` limit at failure #34, so subsequent case material is appended to the dedicated reference file rather than the main skill body. **At every cron-session start, read BOTH reference files AND the outbox README** before any diagnostic — the three together cover the full outage history.
+
+> ⚠️ **Size warning (2026-09-27):** The SKILL.md body is at the 100k-character `skill_manage patch` limit. Future case material MUST go into `references/toutiao-cron-outage-2026-09.md` (append-only). Don't try to `skill_manage patch` this file with large additions — it will fail. Small pitfall additions (under ~500 chars) are still possible.
+
 ## Case G — Agent-mode cron variant: 7th consecutive failure, outbox accumulation, importlib bypass (2026-09-02)
 
 The `toutiao-article-daily.py` cron failed for the 7th consecutive night with the identical `Connection unexpectedly closed` symptom on the identical `iylylmwnitbbbebi` auth code. By this point the diagnostic is fully internalized. What was genuinely new this cycle:
