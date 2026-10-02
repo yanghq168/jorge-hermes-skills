@@ -38,6 +38,7 @@ it" recovery section.
 """
 
 import argparse
+import os
 import re
 import sys
 import time
@@ -116,6 +117,35 @@ def send_one(html_path, sender_label, platform):
     return False, f'❌ 重发失败 (3 次重试): {last_err}'
 
 
+def pick_latest_backup(outbox_dir):
+    """Prefer today's PENDING_<YYYYMMDD>.html symlink; fall back to newest.
+
+    The PENDING_<YYYYMMDD>.html symlink is created by cron scripts when SMTP
+    delivery fails (Case Q Lesson 2 convention). It points at the backup file
+    that today's cron run generated. When this script runs immediately after
+    a cron failure, the PENDING symlink is more reliable than "newest by
+    mtime" — particularly when multiple files exist for the same day from
+    accidental re-runs (Cases S/T documented this). For historical backlog
+    recovery (--all mode), the mtime sort still works.
+
+    Returns a single Path.
+    """
+    from datetime import datetime
+    today = datetime.now().strftime("%Y%m%d")
+    pending = outbox_dir / f"PENDING_{today}.html"
+    if pending.is_symlink():
+        target_name = os.readlink(pending)
+        target = outbox_dir / target_name
+        if target.exists():
+            return target
+    elif pending.exists():
+        # PENDING that was copied to a real file (no longer a symlink)
+        return pending
+    # Fall back to newest by mtime
+    backups = sorted(outbox_dir.glob('*.html'), key=lambda p: p.stat().st_mtime, reverse=True)
+    return backups[0] if backups else None
+
+
 def main():
     parser = argparse.ArgumentParser(
         description='Resend a saved HTML backup from the cron outbox.',
@@ -133,23 +163,27 @@ def main():
         print(f'   Has the cron ever failed for platform={args.platform}?', file=sys.stderr)
         sys.exit(1)
 
-    backups = sorted(outbox_dir.glob('*.html'), key=lambda p: p.stat().st_mtime, reverse=True)
-    if not backups:
-        print(f'❌ No HTML backups in {outbox_dir}', file=sys.stderr)
-        sys.exit(1)
-
     if args.file:
         targets = [outbox_dir / args.file]
         if not targets[0].exists():
             print(f'❌ File not found: {targets[0]}', file=sys.stderr)
             sys.exit(1)
     elif args.all:
-        targets = backups
+        targets = sorted(outbox_dir.glob('*.html'), key=lambda p: p.stat().st_mtime, reverse=True)
         print(f'📤 Will attempt to resend all {len(targets)} backups, newest first')
     else:
-        targets = [backups[0]]
-        print(f'📤 Will attempt to resend latest: {targets[0].name}')
-        print(f'   ({len(backups)-1} older backups in outbox — pass --all to attempt them too)')
+        # Default mode: prefer today's PENDING symlink (Case Q convention),
+        # fall back to newest by mtime if no PENDING exists.
+        latest = pick_latest_backup(outbox_dir)
+        if latest is None:
+            print(f'❌ No HTML backups in {outbox_dir}', file=sys.stderr)
+            sys.exit(1)
+        targets = [latest]
+        all_backups = list(outbox_dir.glob('*.html'))
+        older_count = len(all_backups) - 1
+        print(f'📤 Will attempt to resend today\'s article: {targets[0].name}')
+        if older_count > 0:
+            print(f'   ({older_count} older backups in outbox — pass --all to attempt them too)')
 
     sender_label = SENDER_LABEL.get(args.platform, args.platform)
     print(f'📧 SMTP: {SMTP_USER}@{SMTP_SERVER}:{SMTP_PORT} → {TO_EMAIL}')
