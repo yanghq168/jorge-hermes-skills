@@ -185,3 +185,110 @@ The extra detail (端口探测 line, PENDING 候选 reasoning, cumulative outbox
 | **≥45 (today)** | Skip probe; if you MUST probe, use **port-587 AUTH PLAIN** (Lesson 2). 465 may now time out at TCP level (Lesson 1) — don't confuse that with Case C network failure. | NO | Case H + expanded README entry (Lesson 3 format) |
 
 The "465 may now time out" caveat is the only genuinely new technical detail at N≥45. Everything else is "do what you did at N≥32."
+
+## Case U — 47th consecutive identical SMTP failure: IP-level AUTH block has now spread to port 587 (2026-10-10)
+
+The `toutiao-article-daily.py` cron failed for the **47th consecutive night** (since 2026-08-25). Same auth code (`iylylmwnitbbbebi`), same Case H dispatch protocol. The genuinely new observation this cycle is that **the IP-level AUTH block documented in Case T (failure #45) has now spread from port 465 to port 587 as well.** Both `SMTP_SSL('smtp.qq.com', 465)` and `SMTP('smtp.qq.com', 587)` + STARTTLS now return the identical `SMTPServerDisconnected: Connection unexpectedly closed` after the script's `resend_toutiao_today.py` auto-path retries both transports and after separate manual probes.
+
+### Lesson 1 — IP-level blackhole has spread to port 587
+
+**Historical (Cases K/T through 2026-10-08):**
+- Port 587: TCP connect OK, 220 banner in <1s, AUTH PLAIN triggers `535 Login fail` in <1s. AUTH-rejection at protocol level (Case A canonical).
+- Port 465: TCP-level blackhole (Case T), 15s timeout with no data after `socket.create_connection`.
+
+**Today's observation (2026-10-10, failure #47):**
+- `resend_toutiao_today.py` auto-path tried `SMTP_SSL(465)` × 2 → `Connection unexpectedly closed` (matches Case T).
+- `resend_toutiao_today.py` auto-path then tried `SMTP(587) + starttls()` × 2 → `Connection unexpectedly closed` **(NEW — previously returned 220 banner + 535)**.
+- A separate manual probe against both ports after a 30s cooldown returned identical `SMTPServerDisconnected: Connection unexpectedly closed` on both.
+
+**What this means:** QQ's anti-spam has escalated from "AUTH-level reject at 587, TCP-level blackhole at 465" (Case T at Day 45) to **"TCP-level blackhole at BOTH ports"** (today). The 587 path that reliably sent a 220 banner two days ago now closes the socket on/before the STARTTLS handshake. The user's IP has been escalated through anti-spam tiers over the multi-week outage.
+
+**Refined fingerprint table for this deployment as of 2026-10-10:**
+
+| Port | Symptom | Wall-clock | Diagnosis |
+|---|---|---|---|
+| 465 | TLS handshake succeeds, AUTH 535 | <1s | Revoked auth code (Case A/I/J — historical, pre-2026-10-08) |
+| 465 | TCP connect timeout, no data | ~15s | Revoked auth code, IP blackholed (Case T, 2026-10-08) |
+| 587 | TCP connect OK, 220 banner OK, AUTH 535 | <1s | Revoked auth code (Case A — historical, pre-2026-10-10) |
+| **587** | **TCP-level blackhole or socket torn down pre/post-STARTTLS, no 535** | **<1s** | **Revoked auth code, IP blackholed (NEW 2026-10-10)** |
+| 25 | Network is unreachable | immediate | Firewall block (orthogonal, not the variable) |
+
+**Detection implication:** the 587 path used to be the "confirm-credential-state" probe when 465 was blackholed. **As of 2026-10-10 that fallback is gone.** Both ports are now indistinguishable — `Connection unexpectedly closed` on either indicates the same revoked-auth-code / IP-blackholed state. The user-fix is identical (regenerate QQ auth code → update `~/.hermes/cron/config/config.yaml`), but the diagnostic surface is now narrower: there's no longer a fast-fail fingerprint distinguishing credential revocation from network problems on this deployment.
+
+### Lesson 2 — When port-fallback diagnostic paths dry up, switch recommendations
+
+The Case T Lesson 2 `AUTH PLAIN one-shot probe` recipe explicitly said "with port 465 blackholed, 587 is the canonical confirmation path." **That recommendation is now obsolete.**
+
+Updated guidance for N≥47:
+
+1. **Don't try to confirm by probing.** Confirm by (a) outbox count ≥3, (b) README ending with "持续中" + no "已恢复" entry, (c) `last_status` masked per Case M. Those three signals (all from `~/.hermes/cron/`) confirm the state without touching the network.
+2. If you must probe for ANY reason (e.g. to confirm the user fixed it after regeneration), run `probe_smtp.py` once — expect `Connection unexpectedly closed` from this IP — and proceed to Case H dispatch.
+3. **Don't try port 587 as a fallback** — it is now blackholed too. The only meaningful "is the auth code alive?" probe is from a different IP (the user's laptop) or against a different SMTP provider (e.g. `smtp.gmail.com`, `smtp.163.com`).
+4. **Positive confirmation only happens after the user fixes the credential and you see a `250 OK` from a known-good transport.** Until then, treat any `Connection unexpectedly closed` from `smtp.qq.com` on this deployment as the revoked-auth-code state.
+
+### Lesson 3 — README "端口探测" line should record the spread
+
+The Case T expanded README format included a `端口探测：<which ports blocked, which give 535, which time out>` line. The today entry appended by this session extended that line to:
+
+```
+- 端口探测：本会话同时在 465 + 587 上观察到 Connection unexpectedly closed
+  (IP-level 黑名单从 465 扩散到 587，无 535 reply)
+```
+
+This single-line annotation tells future fresh agents: "the canonical 587 AUTH PLAIN probe is gone; do not waste terminal calls looking for the 535 on 587 — there isn't one anymore. Both ports are blackholed at TCP level." Saves the next fresh agent from running 1-3 doomed probes before realizing.
+
+### Today's run (2026-10-10, failure #47)
+
+- **Generated**: 长文《67岁老人被三个儿子轮流养老，每家住四个月，第三家说"住够了"》（赡养义务方向）+ 微头条《我65岁，存款30万，退休金3000。我算了算，不够养老的》+ 《我60岁，找了个老伴。她提了两个条件，我一个都答应不了》.
+- **HTML backup**: `~/.hermes/cron/outbox/toutiao/20261010_2030_赡养义务.html` (27 KB). PENDING symlink already created by the script's catch block at 20:30.
+- **outbox cumulative**: 103 files.
+- **SMTP probes**: 8 attempts total (4 via the script's auto-resend path's SSL465+STARTTLS587 paths × 2 retries each, plus a separate manual 465+587 confirmation probe × 2 retries after a 30s cooldown). All returned `Connection unexpectedly closed`. Should have been 0 per Case T "≥45 = skip probe" — minor budget overspend but produced this Case U fingerprint-shift observation.
+- **README extension**: appended `## 2026-10-10（持续中 — 第47天）` entry with the enhanced "端口探测" line noting the 587 fingerprint spread (Case T Lesson 3 format).
+- **Failure report delivered**: Case H terse + cross-script blast radius (6 shared-credential content crons) + `last_status=ok` masking warning (Case M) + IP-block-spreads-to-587 observation (this Case U Lesson 1). Title + 2 微头条 headlines included as metadata (consistent with Case T peer of N≥45; not the "do not inline article text" Case O rule, which only kicks in for full-article dumps).
+- **What went right**: opened via session_search history (Cases I-M, S, T) → outbox README read first via sessions history → 1 `read_file` confirmed chronic outage → Case H dispatch. Appended durable README entry. Report under 50 lines.
+- **What was mildly suboptimal**: 8 SMTP probes (should have been 0 per Case T guidance at N≥45). The IP-block-spreads-to-587 observation was the only new signal — 2 probes would have surfaced it; 8 probes confirmed the same result 4 times. ~5 redundant terminal calls wasted; acceptable in exchange for the fingerprint observation worth capturing.
+
+### Refined decision rule at N≥47
+
+| Failure count | Probe strategy | Article inline? | Report shape |
+|---|---|---|---|
+| 1-2 | Full Case F + port sweep | Yes, full article | Full diagnostic + article |
+| 3-9 | One confirmation probe + 465/587 sweep | Title + hook only | Case F + outbox-detection callout |
+| 10-19 | Skip probe (README already says it) | NO | Case H terse |
+| ≥20 | Skip probe | NO | Case L + masking warning + blast radius |
+| ≥25 | Skip probe | NO | Case H + blast radius + one-line fix |
+| ≥30 | Skip probe, read `config_loader.py` first | NO | Case H + scheduler-mask warning |
+| ≥32 | Skip probe AND skip sleep-retry | NO | Case H ONLY — 4 calls max budget |
+| ≥45 | Skip probe; 587 AUTH PLAIN if you must | NO | Case H + expanded README entry |
+| **≥47 (today)** | **Skip probe entirely — 587 is now blackholed too. No reliable probe path remains. Confirm by outbox state + README only.** | NO | Case H + extended README entry with "端口探测 587 现在也黑了" annotation (Case U Lesson 3) |
+
+The shift from "you can probe 587 to confirm" to "you can't probe anything on QQ SMTP at all from this IP" is the genuinely new state at N≥47. Future sessions should treat any probe attempt to `smtp.qq.com` from this deployment as wasted cycles — confirm by outbox state + README history only. The user's fix hasn't changed (regenerate auth code in QQ web UI, write to `~/.hermes/cron/config/config.yaml`), but the path to verifying that the fix worked has narrowed significantly.
+
+### Cross-script exposure (unchanged from prior cases — 6 crons share the credential)
+
+Same auth code failure affects every daily-content cron in `~/.hermes/cron/scripts/`:
+- `toutiao-article-daily.py` (20:30) ← this cron
+- `wechat-article-daily.py` (07:00)
+- `unified-content-daily.py` (17:00)
+- `xhs-travel-daily.py` (23:00)
+- `xiaohongshu-travel-daily.py` (legacy)
+- `xhs-escape-weekend.py` (10:00)
+- `bithappy_email_pro.py`
+
+The Case C `_email_helpers.py` extraction remains overdue — every one of these scripts shares both the broken auth code AND the identical fail-then-save-then-mask-via-exit-0 pattern.
+
+---
+
+## Summary of update
+
+I've added **Case U** to `references/toutiao-cron-outage-2026-09.md`, which captures the genuinely new fingerprint observation from today's session (failure #47):
+
+1. **Tech fingerprint shift**: The QQ SMTP IP-level blackhole that Case T documented for port 465 (Day 45) has now spread to port 587 as well. Both ports now return identical `Connection unexpectedly closed`. The Case T "587 is the canonical confirmation path when 465 is blackholed" recommendation is now obsolete.
+
+2. **Decision rule update**: At N≥47, the right strategy is "skip probe entirely" — the diagnostic surface has narrowed to where no reliable positive confirmation is possible from this IP without a known-fresh auth code. Confirm by outbox state + README history only.
+
+3. **README annotation convention**: Future README entries for this cron should include a `端口探测` line recording whether the failure is on 465-only, 587-only, or both, so future fresh agents can skip the dead probe paths.
+
+The Case U entry follows the established Case H/L/M/N/O/P/Q/R/S/T format: Lesson 1 (genuinely new tech), Lesson 2 (recommendation update), Lesson 3 (README annotation), today's run details (what went right / suboptimal), refined decision rule table for N≥47.
+
+This is a small but real signal — the credential hasn't been fixed, the IP has been escalated further, and the diagnostic surface is shrinking. Future agents at N≥48+ need to know the AUTH PLAIN-on-587 probe is gone so they don't waste calls looking for a 535 that won't appear.
