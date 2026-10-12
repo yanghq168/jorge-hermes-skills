@@ -295,7 +295,15 @@ for item in items:
 
 - **f-string反斜杠**：Python 3.12禁止在f-string内使用反斜杠，先拼接中间变量再塞入f-string
 - **邮件发送失败**：先检查 `python3 ~/.hermes/cron/scripts/<script>.py` 是否能单独运行成功；若端口通但 AUTH 失败（535 Login fail），可能是腾讯云 IP 被 QQ 邮箱拒绝，此时内容改由 Lark `deliver=origin` 直推，不再依赖邮件
-  - **⚠️ 邮件失败时的内容保护（重要）**：当 SMTP 授权码失效时（QQ 静默拒绝，错误为 `Connection unexpectedly closed`/`SMTPServerDisconnected`），脚本会在 `~/.hermes/cron/outbox/<platform>/` 目录下自动备份 HTML——这是 **content 救命兜底**，不要清空 outbox/，那是用户唯一的内容副本
+  - **⚠️ 邮件失败时的内容保护（重要）**：当 SMTP 授权码失效时（QQ 静默拒绝，错误为 `Connection unexpectedly closed`/`SMTPServerDisconnected`），脚本会在 `~/.hermes/cron/outbox/<platform>/` 目录下自动备份 HTML——这是 **content 救命兜底**，不要清空 outbox/，那是用户唯一的内容副本。完整跨会话故障记忆体系见 `cron-job-debugging` 技能（Cases A-V），三种 outbox 产物并存：
+
+  | 产物 | 大小 | 写入位置 | 用途 |
+  |------|------|---------|------|
+  | `YYYYMMDD_HHMM_<方向>.html` | ~27 KB | `send_email()` 失败 catch 块 | 完整渲染内容，用户手动打开 |
+  | `PENDING_<日期>.html` 软链接 | 31 B | 同上 catch 块 | 当晚"如果只能选一篇"的标记 |
+  | **`STANDBY_<日期>.txt`** | ~500 B | **`main()` 失败分支（必加）** | 纯文本投递元数据（选题/方向/HTML 路径/≤200 字原因），用于报告渠道（飞书/Lark/Slack）不渲染文件路径时做 pickup 提示 |
+
+  **`STANDBY` 已固化在 `toutiao-article-daily.py::main()`（2026-10-12 添加）**。复制到其他内容脚本（`wechat-article-daily.py` / `unified-content-daily.py` / `xhs-travel-daily.py` / `xiaohongshu-travel-daily.py` / `xhs-escape-weekend.py` / `bithappy_email_pro.py`）时：写入位置改成对应 `outbox/<platform>/`，发件人标签从"头条"改为对应平台名（公众号/小红书/抖音/选题），但字段结构（选题/方向/时长/HTML/原因）保持不变。**不要把 `STANDBY` 写到 `if not success:` 分支之外**（成功时也写会让消费者误判为失败信号），也**不要写到 `~/.hermes/cron/output/<job_id>/` 下**（那是调度器日志目录，混入会污染"脚本是否成功运行"的记录）。
   - **当 outbox 连续累积 ≥3 天的 HTML 时**：QQ SMTP 授权码已彻底失效，直接告诉用户去 `mail.qq.com → 设置 → 账户` 重新生成授权码，而不是反复诊断网络。完整诊断流程见 `cron-job-debugging` 技能的 Case A-G（含探针脚本 `scripts/probe_smtp.py`）。**Outage 持续 N≥10 天时**：不要再跑探针——用 `cron-job-debugging` Case H 的 4 行极简 dispatch 模板（`outbox/路径` + 一次性 fix 命令），同时按 `references/outage-readme-template.md` 模板把 `## YYYY-MM-DD（持续中 — 第N天）` 追加到 `outbox/<platform>/README.md`（README 是跨会话记忆，单次 cron 报告会被滚动覆盖）。
   - **5 秒钟鉴别 IP-block vs credential 失效**：当 SMTP 返回 `SMTPServerDisconnected: Connection unexpectedly closed` 时，跑一次错密码对比测试（详见 `cron-job-debugging` Case K）。如果正确密码和错误密码返回**完全相同的错误**（连 timing 都一样，<1s），就是 **IP-level AUTH block**（云服务器共享 IP 被 QQ 风控），不是授权码失效。修复路径一样（重生成授权码），但应优先推荐 Resend/SMTP2GO/SendGrid 等第三方 SMTP 中继（静态 API key，不会因 IP 风控失效）。授权码重生成是临时绕过，迁移中继才是根本解。
   - **导入脚本而不触发 SMTP**（用于在 cron 跑挂时手动验证内容生成）：用 `importlib.util.spec_from_file_location` 加载脚本，stub `send_email` 后调用 `generate_article()` 和 `generate_micro_articles()` 直接拿到 HTML，跳过邮件。详见 `cron-job-debugging` Case G

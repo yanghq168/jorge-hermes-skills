@@ -354,6 +354,8 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   path embedded in the error message. See step 6 of the SMTP deep-dive for
   the working template from `toutiao-article-daily.py`.
 
+- **Three outbox-resident artifact types, three purposes (Case V, 2026-10-12).** Chronic-outage crons should maintain three sibling artifacts under `outbox/<platform>/`: (1) the rendered `YYYYMMDD_HHMM_<direction>.html` (full content), (2) the `PENDING_<date>.html` symlink to one canonical content file, (3) a `STANDBY_<date>.txt` plain-text dispatch metadata file (title / direction / HTML path / ≤200-char reason). The STANDBY file is for crons whose primary delivery channel is broken AND whose report rides a secondary channel (e.g. Feishu / Lark / Slack) that doesn't render file paths — that secondary consumer can quote the STANDBY as a low-bandwidth pickup notification. Worked implementation lives in `toutiao-article-daily.py::main()` (block added 2026-10-12 — preserve it on future edits). Don't move the STANDBY write out of the `if not success:` branch, and don't store STANDBY files in `~/.hermes/cron/output/<job_id>/` (that's scheduler log territory, see §5/Case C). Full lessons + porting guide in `references/toutiao-cron-outage-2026-09.md` Case V.
+
 - **The failure report must NOT depend on the broken channel.** When the
   cron is failing because of email, the failure report cannot be an email.
   Always check the cron's `deliver` config: if it's `deliver: origin` to
