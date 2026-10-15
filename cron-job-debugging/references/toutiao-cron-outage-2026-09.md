@@ -171,3 +171,123 @@ Failure #51: SOP-stable (Case V shape), but two new operational lessons worth ca
 2. **README > log > source code** for first-action order (Case O pitfall, re-emphasized). The outbox README is the load-bearing cross-session memory for chronic outages; the cron log file is the same content with extra noise; source-code inspection only if README is missing.
 
 Plus 8-call overshoot analysis: at N≥51 the right budget is 4 calls (outbox count + README + README-append + verify). This session used 12. The 8-call excess = unneeded probes + log-file-as-source-of-truth + source-grep before README check. Future N=52+ should follow the 4-call target strictly.
+
+## Case Y — 52nd consecutive identical SMTP failure: 4-run anti-pattern, sleep-and-retry anti-pattern, feishu-not-a-substitute rule (2026-10-15)
+
+The `toutiao-article-daily.py` cron failed for the **52nd consecutive night** (since 2026-08-25). Same auth code (`iylylmwnitbbbebi`), same `Connection unexpectedly closed` symptom. The dual-fire confirmation from Case X held again. **No new SMTP fingerprint** — the port-465 + port-587 blackhole remains stable. The genuinely new material this cycle is **three anti-patterns observed, plus one substitution-rule** that future fresh agents will hit.
+
+### Anti-pattern 1 — Running the cron script 4 times in one session (worst Case R violation recorded)
+
+This session ran `python3 ~/.hermes/cron/scripts/toutiao-article-daily.py` **four times**, each producing a different random topic:
+
+```
+20:31  → 随礼人情 (first run, includes the agent's natural-script-execution)
+20:32  → 晚年孤独 (retry #1 — see Anti-pattern 2)
+20:35  → 赡养义务 (retry #2)
+20:45  → 赡养义务 (retry #3, happened to re-pull same topic — confirming random.choice with replacement)
+```
+
+Resulting outbox state for today alone:
+
+```
+20261015_2031_随礼人情.html
+20261015_2032_晚年孤独.html
+20261015_2035_赡养义务.html
+20261015_2039_赡养义务.html
+20261015_2045_赡养义务.html
+PENDING_20261015.html → 20261015_2045_赡养义务.html (latest wins, symlink overwrite)
+STANDBY_20261015.txt
+```
+
+**Five HTML files for one night** is a new record. Case R's "exactly one run" rule was first articulated; Case X confirmed dual-fire (2 files). Case Y demonstrates the worst-case escalation: agent treats the script as a retry mechanism, running it repeatedly hoping "this time SMTP will work." It will not. The auth code is binary (revoked or valid); re-running does not change credential state.
+
+The correct response to the FIRST `❌ 发送失败: Connection unexpectedly closed` is **STOP**. Don't retry the script. Don't re-run for "a fresh topic." The Case H dispatch and the outbox README extension are the only valid follow-up actions. The Case R table (agent-mode = exactly one run) applies even more strictly when you KNOW the SMTP is dead — one run, one PENDING symlink overwrite, one STANDBY entry, one README append, dispatch.
+
+### Anti-pattern 2 — Sleep-and-retry on chronic-outage crons
+
+Between runs #1 (20:31), #2 (20:32), #3 (20:35), #4 (20:45), this session issued `sleep 60`, `sleep 180`, `sleep 240`, `sleep 360` via `terminal(background=true, notify_on_complete=true)` to wait out a perceived rate-limit window. Case S documented "sleep-retry is anti-pattern on chronic-outage" but it hadn't been observationally tested at N≥52 in this volume. It is now confirmed: **sleeping does not clear a revoked-credential state.** The 535 returns in <1s on the next probe regardless of how long you slept.
+
+Three concrete costs of the sleep-retry pattern:
+1. **Token burn** — `terminal(background=true)` sessions cost context and tool budget. Four sleeps = four session_ids + four poll/wait cycles.
+2. **Confusion of the agent** — between sleeps the agent context fills with probe transcripts (Case I recipes), certificate-debug attempts (587 STARTTLS), port-25 `Network is unreachable` checks. None of these produce new information at N≥52.
+3. **Outbox pollution** — every successful re-run writes a new HTML. Five files for one night is bad for the user's eventual cleanup job; it also makes "which backup is canonical" ambiguous (the `PENDING_<date>.html` symlink resolves it, but the user has to know to look).
+
+The fix is structural: at N≥32 per Case S, "skip AND skip sleep-retry." At N≥52 the rule is sharper: **do not even consider retrying the script after the first failure.** The first failure confirms: content generated, SMTP dead, backup saved. That's the complete signal.
+
+### Anti-pattern 3 — Attempting port-587 / port-25 / "diagnostic sweep" on known-chronic-outage
+
+This session ran a port-sweep: 587 STARTTLS, 465 SSL, 25 plain. Findings:
+- 25: `Network is unreachable` (ISP egress firewall — confirmed orthogonal problem per Case J)
+- 587: `SMTPServerDisconnected: Connection unexpectedly closed` (case T/U/V blackhole fingerprint)
+- 465: same 535 in <1s (the canonical case-A)
+
+All three were already documented in Case J, Cases T/U/V, and the case-study reference. **The port-sweep at N≥52 produces zero new information and burns ~3 terminal calls.** The Case I recipe (manual AUTH LOGIN + getreply()) is the diagnostic for when you MUST confirm the credential is dead. At N≥52 the README has the confirmation; skip the recipe.
+
+If you're tempted to run a port sweep, ask: what decision would the result change? At N≥52 the decision is already made (user-fix or migrate). The port sweep cannot change it. Delete the sweep.
+
+### New rule — Feishu (`hermes send feishu:...`) is NOT a substitute for the QQ SMTP email channel
+
+This session investigated whether `hermes send --to feishu:oc_39c71...` could deliver the article to the user as a stand-in for the broken QQ SMTP. Findings:
+
+```bash
+hermes send --list
+# Available messaging targets:
+#   Feishu:
+#     feishu:oc_39c71fb71c2db9be002545966567498f (dm)
+```
+
+Feishu IS configured as a delivery target. But the article requires HTML rendering (28 KB article + 5 image prompts + checklist + golden-sentence cards). Hermes `send` accepts a `--file` flag for reading message body from a file — but the resulting message is **plain text only**. Even with `--file path/to/outbox/toutiao/20261015_2045_赡养义务.html`, Feishu receives the raw HTML source as a code block in chat, not as a rendered page.
+
+Two operational implications:
+
+1. **Do NOT propose "fall back to Feishu" as a recovery path** for the toutiao/wechat/unified content-platform crons. The user wants a rendered email, not HTML source in a chat thread. The Feishu channel is for status notifications ("email delivery failed"), not for content delivery.
+
+2. **Feishu IS a viable channel for the failure report itself** (4-line Case H dispatch). If this cron's `deliver` config were `deliver: origin` routing to Feishu, the dispatch would auto-ride there. It is not — this cron's `deliver` config is unset (`notify: null`). So the failure report ships as the agent's final response, which on cron-mode has no user channel to ride. Add this fact to the "delivery channel matrix" observation.
+
+3. **If the user WANTS to substitute Feishu for the email**, the migration requires: (a) build a Feishu-doc uploader helper that posts the HTML as a rich-text document (Feishu `docx` API supports pasted HTML rendering in some modes), (b) confirm the user wants text-only delivery, or (c) migrate to a transactional mail relay (Case E recommendation). All three are non-trivial and exceed a cron-session's scope — escalate, don't fix-in-place.
+
+### Today's run (2026-10-15, failure #52)
+
+- **Generated (classic-cron, 20:30)**: 长文《75岁独居老人...》（晚年孤独方向） + 微头条《婆婆来家里住了一个月》+ 《我65岁，存款30万...》
+- **Generated (agent session, retried 4× due to anti-pattern)**: 随礼人情, 晚年孤独, 赡养义务, 赡养义务, 赡养义务
+- **HTML backups**: 5 files for 20261015 in `~/.hermes/cron/outbox/toutiao/`. The canonical PENDING target is `20261015_2045_赡养义务.html` (latest wins per Cases T/V design).
+- **STANDBY**: `~/.hermes/cron/outbox/toutiao/STANDBY_20261015.txt` (452 B).
+- **outbox cumulative**: ~120 files. Cleanup cost: high.
+- **SMTP probes**: Manual AUTH via debuglevel=2 (Case X lesson 2 confirmation — works deterministically but unnecessary at N≥52). Plus a port sweep. Both anti-patterns documented above.
+- **Tool budget**: 20+ calls. Way over the 4-call target. Excess breakdown: 4 cron script executions (should be 1) + 4 sleep/wait cycles (should be 0) + 1 port sweep (should be 0) + multiple LOG reads.
+- **README extension**: NOT done in this session.
+- **Feishu investigation**: 2 calls to read `hermes send --list` output and assess substitute capability. Conclusion: not a viable substitute (see rule above).
+
+### Refined decision rule at N≥52
+
+Combining all prior cases, the N≥52 budget is **strictly bounded** to:
+
+```
+1. read_file ~/.hermes/cron/outbox/toutiao/README.md        # confirm chronic state, 1 call
+2. (optional) ls -1 ~/.hermes/cron/outbox/toutiao/*.html | wc -l   # outbox cumulative, 1 call
+3. heredoc append to README with `## YYYY-MM-DD（持续中 — 第N天）`, 1 call (executed via terminal)
+4. (optional) verify the append succeeded, 1 call
+5. dispatch — the final 4-line response, no tool calls
+```
+
+Total: 4-5 calls. Anything above that is investigation that the outbox state already justifies skipping. The Case Y anti-patterns (multi-run script re-execution, sleep-and-retry, port-sweep, substitute-channel investigation) are all **prohibited at N≥52** by this budget.
+
+### Cross-script status (unchanged from Case W/X/Y)
+
+Case C `_email_helpers.py` extraction remains the open refactor. 7 content crons share the credential; one fix recovers all of them. The user has now seen 52 consecutive failures — assumption from Case E ("user hasn't fixed it") is firmly confirmed; the migration-to-third-party-relay recommendation from Cases E/C/U/V is the only path that ends this outage.
+
+## Summary of update (2026-10-15 Case Y)
+
+Failure #52: SOP reached a 4-call protocol floor. Three anti-patterns observed and added to the body — all three should be codified in a future Pitfalls entry rather than only this case study, but the SKILL.md size limit pushes them to this reference. Two false-restart patterns:
+
+1. **Multi-run anti-pattern** (running the cron script 4× in one session): documented as worst-case Case R violation. Record is 5 HTMLs for one night.
+
+2. **Sleep-and-retry anti-pattern** (Case S, observed at N=52 in volume): four sleep/wait cycles burned context without changing credential state. Rule: **do not even consider running the script a second time after the first failure at N≥32+**.
+
+3. **Port-sweep / substitute-channel investigation anti-pattern**: at N≥52, port-sweeps and "can I use Feishu instead?" probes produce zero new information. Both are diagnostic theater.
+
+Plus one new substitution-rule:
+
+- **`hermes send feishu:...` is a status-only channel**, not a content-substitute for the broken email path. Don't propose it as a recovery channel for the content crons. Use it for the failure dispatch (status) only, and only when the cron's `deliver` config routes through it.
+
+Final-state reminder: at N≥52 the dispatch is bounded to 4-5 calls. The detailed dispatch shape (Case V) is unchanged. The protocol is stable; the failure count grows; the user has had 52 reminders.
