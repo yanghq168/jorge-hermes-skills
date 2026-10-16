@@ -385,6 +385,9 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   a runbook dispatch, not an investigation. See Case H for the canonical
   terse report template.
 
+- **The Case H README extension is independent of the failure report (2026-10-16, Case W).**
+  At high N (≥30), agents tend to skip the `## YYYY-MM-DD（持续中 — 第N天）` README extension because the terse Case H report "felt done." But the report rides the agent's `deliver: origin` channel and scrolls past; the README persists. Skipping it breaks the cross-session memory chain. Treat the README extension as a MANDATORY terminal action, not optional cleanup — do it before considering the cron-session done. A `grep -c "^## " ~/.hermes/cron/outbox/<platform>/README.md` should increase by 1 after every cron-session; if it didn't, the extension was skipped. See Case W for the full failure mode and the cleanup paradox.
+
 - **`SMTPServerDisconnected` with IDENTICAL response for correct AND wrong
   password is a 4th diagnostic mode — IP-level AUTH block, not credential
   revocation.** Discovered 2026-09-11 (failure #17): both
@@ -493,6 +496,47 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
 For the `toutiao-article-daily.py` QQ SMTP outage (20+ nights as of 2026-09-13, identical `Connection unexpectedly closed` every night, auth code `iylylmwnitbbbebi` revoked), see `references/toutiao-cron-outage-2026-08.md`. It contains the verbatim QQ-web-UI fix steps, the outbox cleanup recipe, the terse-report pattern from Case H, and Cases I/J/L for refined probe recipes. **If you see a `Connection unexpectedly closed` on `smtp.qq.com:465` for `569545015@qq.com`, read that file first — the credential is almost certainly already revoked and the outbox already has today's content.**
 
 For Cases S+ (failure #34 onwards, 2026-09-27+), see `references/toutiao-cron-outage-2026-09.md` — the continuation log. The SKILL.md size hit the 100k-character `skill_manage patch` limit at failure #34, so subsequent case material is appended to the dedicated reference file rather than the main skill body. **At every cron-session start, read BOTH reference files AND the outbox README** before any diagnostic — the three together cover the full outage history.
+
+### Outbox pruning when accumulation gets unwieldy (Case W, 2026-10-16, failure #53)
+
+The chronic-outage cron is at failure #53; `~/.hermes/cron/outbox/toutiao/` had accumulated ~117 HTML files (~3 MB) plus 14 PENDING symlinks plus 4 STANDBY files. At this size, `ls` becomes slow and the directory is unusable as a quick "is there a backup?" check.
+
+Pruning recipe — keep the last N days, preserve README + PENDING + STANDBY untouched:
+
+```bash
+# Keep last 14 days of HTML backups; delete older ones
+KEEP_FROM=$(date -d '14 days ago' +%Y%m%d)
+cd ~/.hermes/cron/outbox/<platform>/
+ls -1 *.html 2>/dev/null | while read f; do
+  fname="${f%.html}"
+  datestr="${fname:0:8}"
+  if [[ "$datestr" < "$KEEP_FROM" ]]; then
+    rm -f "$f"
+  fi
+done
+# Also delete the corresponding PENDING symlinks and old STANDBY entries
+ls -1 PENDING_*.html 2>/dev/null | while read f; do
+  datestr="${f:8:8}"
+  if [[ "$datestr" < "$KEEP_FROM" ]]; then rm -f "$f"; fi
+done
+rm -f STANDBY_<YYYYMMDD_before_KEEP_FROM>.txt
+```
+
+**Don't prune without preserving the README's history.** The README's "持续中 — 第N天" entries are the cross-session memory; the user may want to read them when they finally fix the auth code to see how long the outage ran. The recipe above leaves `README.md` untouched.
+
+**Why 14 days:** enough to give the user a meaningful buffer of "I haven't read these yet" articles when they finally fix the credential and want to sweep history with `scripts/resend_outbox_html.py --all`, but small enough to keep `ls` instant. Tune by storage size: at ~27 KB per HTML, 14 days = ~380 KB per platform, very manageable.
+
+**Anti-pattern: don't write a Python script to do this.** A bash one-liner is correct; a `.py` script over-engineers a 30-second cleanup. Case P warned against bespoke platform-specific scripts; same applies to one-off cleanup tools.
+
+### Case H durable action gets skipped at high N — the cleanup paradox (Case W, 2026-10-16, failure #53)
+
+At failure #53, the cron-session agent ran the script (Case R: agent-mode = one canonical run, correct), delivered the Case H terse report (correct), then pruned the outbox to last 14 days (correct, see above) — but **did NOT append a `## 2026-10-16（持续中 — 第53天）` entry to `~/.hermes/cron/outbox/toutiao/README.md`**.
+
+This is a Case H violation that's easy to commit at high N because the report already felt "complete." The README extension is **independent of the report** — the report rides the agent's `deliver: origin` channel and disappears from view after the user scrolls past; the README persists. Skipping it breaks the cross-session memory chain.
+
+**Hard rule at any N:** the cron-session is not done until `cat >> ~/.hermes/cron/outbox/<platform>/README.md <<EOF` has appended the `## YYYY-MM-DD（持续中 — 第N天）` block, even at the cost of the README growing to "已恢复" length 53 entries. The cost of skipping this once is small (next session will re-diagnose), but the cost of skipping it 53 times in a row is that future agents reading the README cannot tell which entries are "real outage events" vs "auto-generated by each session." Future sessions should add a 1-line check: `grep -c "^## " ~/.hermes/cron/outbox/<platform>/README.md` should increase by 1 after each cron-session; if not, the extension was skipped.
+
+Patched into Case H pitfall: **the README extension is independent of the report; commit it before reporting done.**
 
 > ⚠️ **Size warning (2026-09-27):** The SKILL.md body is at the 100k-character `skill_manage patch` limit. Future case material MUST go into `references/toutiao-cron-outage-2026-09.md` (append-only). Don't try to `skill_manage patch` this file with large additions — it will fail. Small pitfall additions (under ~500 chars) are still possible.
 
