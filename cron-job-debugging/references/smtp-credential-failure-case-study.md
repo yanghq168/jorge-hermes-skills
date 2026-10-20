@@ -387,3 +387,31 @@ The diagnostic-to-fix mapping for Case K is the same as A/B (regenerate the auth
 `~/.hermes/cron/outbox/toutiao/` now contains **20 HTML files** (was 17 at Case I, +3 across this outage). The `outbox/toutiao/README.md` was extended with the "## 2026-09-11（持续中 — 第17天）" entry — and this Case K entry was added to the case study so future sessions encountering the identical-signature pattern don't waste tokens re-discovering it.
 
 The Case C follow-up (extract `_email_helpers.py`) remains overdue by 17 cron cycles. The Case E migration option (Resend/SMTP2GO/SendGrid with a static API key) is now the **strongly recommended** permanent fix — Case K confirms the IP block is the underlying problem and regenerating auth codes is a temporary workaround, not a fix.
+
+## ⚠️ 2026-10-20 correction to Case K ("IP-level AUTH block")
+
+Case K in this case study claimed that an identical `SMTPServerDisconnected` for a correct and
+an incorrect password proves QQ blocks AUTH from this server's IP *before* credential validation.
+That is **wrong for this deployment**. On 2026-10-20 (failure #57) a raw-socket AUTH LOGIN probe
+against smtp.qq.com:465 returned the full transcript and an **explicit 535**:
+
+```
+220 newxmesmtplogicsvrszc43-0.qq.com XMail Esmtp QQ Mail Server.
+250-newxmesmtplogicsvrszc43-0.qq.com
+250-PIPELINING ... 250-AUTH LOGIN PLAIN XOAUTH XOAUTH2 ... 250 8BITMIME
+AUTH LOGIN   -> 334 VXNlcm5hbWU6
+<b64 user>   -> 334 UGFzc3dvcmQ6
+<b64 pass>   -> 535 Login fail. Account is abnormal, service is not open, password is
+                 incorrect, login frequency limited, or system is busy.
+```
+
+So the correct diagnosis is **Case A (explicit 535) — the authorization code is dead**, not an
+IP block. The misleading part is `smtplib`: it tries AUTH PLAIN, receives the 535, retries AUTH
+LOGIN, and the retried attempt tears the socket down, so the only thing the caller sees is
+`SMTPServerDisconnected: Connection unexpectedly closed`. This masks a perfectly explicit 535.
+
+**Rule going forward:** `SMTPServerDisconnected` on this deployment means "535 happened but
+smtplib hid it" until proven otherwise. Confirm with the raw-socket probe before proposing any
+IP-block theory. Fix is identical either way (regenerate the QQ auth code in mail.qq.com →
+设置 → 账户 → POP3/IMAP/SMTP 服务, write it into `mail.smtp_pass`), but the diagnosis should be
+stated accurately in the user-facing report.
