@@ -300,11 +300,37 @@ The skill body has been updated to reflect this — Case A is the default mental
 
 The Case C follow-up (extract `_email_helpers.py`) remains overdue by 14 cron cycles. The Case E migration option (Resend / SMTP2GO / SendGrid with a static API key) remains the only permanent fix.
 
-## Case K — Bad-password identical to good-password: IP-level AUTH block (2026-09-11)
+## Case K — Bad-password identical to good-password: IP-level AUTH block (2026-09-11) — ⚠️ DISPROVEN 2026-10-20
+
+> **⚠️ THIS CASE IS DISPROVEN. DO NOT CITE IT WITHOUT A FRESH RAW-SOCKET CONTROL TEST.**
+>
+> On 2026-10-20 (failure #57) the "IP-level AUTH block" conclusion below was retested
+> with a raw socket + manual `AUTH LOGIN` probe against `smtp.qq.com:465`. The server
+> produced a complete, explicit transcript: `220` banner, `250-AUTH LOGIN PLAIN XOAUTH
+> XOAUTH2`, `334 VXNlcm5hbWU6`, `334 UGFzc3dvcmQ6`, then **`535 Login fail. Account is
+> abnormal, service is not open, password is incorrect, login frequency limited, or system
+> is busy.`**
+>
+> **TCP and TLS are healthy. QQ does validate the credential and returns Case A
+> (explicit 535).** The "identical right/wrong password signature" recorded on 2026-09-11
+> was an artifact of `smtplib`'s client-side AUTH retry logic, not server behavior:
+> `smtplib.login()` tries AUTH PLAIN, gets the 535, retries AUTH LOGIN, and the second
+> attempt's abrupt teardown surfaces as a generic `SMTPServerDisconnected`. That exception
+> is a *symptom of smtplib's retry logic*, never evidence of an IP block.
+>
+> **Operational rule:** never conclude "IP-level block" from `SMTPServerDisconnected`
+> alone — drive the session yourself and print every server line. If a `535` appears, the
+> credential is dead and the fix is regenerating the auth code, full stop. Only treat an
+> IP block as real after a raw-socket control test shows the server tearing down *without*
+> any `535` even under manual AUTH.
+>
+> The original 2026-09-11 analysis is preserved below as a record of how the wrong
+> conclusion was reached — it is useful only as a worked example of why
+> `smtplib`-based probing is unreliable.
 
 The `toutiao-article-daily.py` cron failed for the **17th consecutive night** (since 2026-08-25). Same auth code (`iylylmwnitbbbebi`), same `Connection unexpectedly closed` symptom. Applied the Case H terse dispatch — but during the diagnostic, ran the manual AUTH probe with a deliberately wrong password to compare signatures. Got a genuinely new finding.
 
-### What the probe showed (this session, 2026-09-11)
+### What the probe showed (this session, 2026-09-11) — since shown to be a client-side artifact
 
 ```python
 # Correct password
@@ -336,7 +362,7 @@ The error message and timing are **bit-identical** for correct and incorrect cre
 |---|---|---|---|
 | EHLO 250 → AUTH 334 → AUTH 334 → **535 Login fail** (explicit) | A — credential revoked, polite SMTP reply | Server validated cred, rejected it | Regenerate auth code |
 | EHLO 250 → AUTH... → bare `SMTPServerDisconnected` (no `reply:` line) | B — credential revoked, aggressive anti-spam | Server rejected cred, hung up without SMTP reply | Regenerate auth code |
-| **EHLO 250 → AUTH (any password) → bare `SMTPServerDisconnected` (no `reply:` line), IDENTICAL for right/wrong password** | **K — IP-level AUTH block** | **Server never validated cred; it's blocking the AUTH command itself from this IP** | **Regenerate auth code (may help if new code uses different anti-spam path); or migrate to Resend/SMTP2GO/SendGrid (Case E option); or get a less-blocked egress IP** |
+| **EHLO 250 → AUTH (any password) → bare `SMTPServerDisconnected` (no `reply:` line), IDENTICAL for right/wrong password** | ~~K — IP-level AUTH block~~ **DISPROVEN — this is Case A's 535 hidden by `smtplib`'s AUTH retry; see the disproof callout above. Drive the session manually to confirm.** | Server DOES validate creds and replies 535; `smtplib` swallows it | Regenerate auth code |
 
 The defining signature for Case K is **identical response for right and wrong password**. This means the server has put the source IP on an "AUTH refused pre-emptively" list — it doesn't even bother to compute `password_correct(user, pass) == True` before tearing down the connection. Common cause: shared cloud-server egress IPs (Tencent Cloud, AWS, GCP, Aliyun) get onto QQ's anti-spam blocklist because other tenants on the same IP abused SMTP. The IP itself is the variable, not the credential.
 
@@ -373,7 +399,7 @@ probe("WRONG_PASSWORD_HERE")         # wrong
 |---|---|---|
 | EHLO 250 → AUTH 334 → 334 → **535 Login fail** (explicit) | A — credential revoked, polite reply | Common (Cases A, C-I default) |
 | EHLO 250 → AUTH... → bare `SMTPServerDisconnected` (no `reply:`, correct pass only) | B — credential revoked, silent close | Rare (Case B only, 2026-08-24) |
-| EHLO 250 → AUTH (correct AND wrong pass) → bare `SMTPServerDisconnected` (no `reply:`, IDENTICAL signatures) | K — IP-level AUTH block | New (Case K, 2026-09-11) |
+| EHLO 250 → AUTH (correct AND wrong pass) → bare `SMTPServerDisconnected` (no `reply:`, IDENTICAL signatures) | ~~K — IP-level AUTH block~~ **DISPROVEN 2026-10-20 — artifact of `smtplib` AUTH retry; treat as Case A until a raw-socket control test shows otherwise** | Was thought "new"; now understood as a client-side symptom |
 | Connect-time failure (timeout / ConnectionRefusedError / SSLError) | C — real network/firewall | Rare |
 
 The diagnostic-to-fix mapping for Case K is the same as A/B (regenerate the auth code, update `~/.hermes/cron/config/config.yaml`) **but** with the explicit caveat that the new code may also be blocked if the IP block persists across regenerations. If regenerating doesn't unblock, the user has three remaining options:
