@@ -492,6 +492,20 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   smtplib's AUTH retry is hiding the actual error. See Case I for the full
   transcript.
 
+- **⚠️ `last_status=ok` does NOT mean the report was delivered (Case Y, 2026-10-24).**
+  The scheduler records `ok` because the *job* ran and produced a response; the
+  *delivery* step is separate and its failure only surfaces in `last_delivery_error`.
+  This deployment had BOTH channels broken at once: QQ SMTP dead 61 nights AND the
+  Feishu `deliver: origin` route broken by a stale `omt_` thread_id (`99992402 field
+  validation failed`, root cause `99992354 invalid open_message_id` — `omt_` is a thread
+  id, not a valid `receive_id` for `receive_id_type=thread_id`).
+  **Operational rule: when investigating "I didn't get the cron message", read
+  `last_delivery_error` FIRST, before diagnosing the job body.** And when running as a
+  cron whose report rides a channel, check that channel's health — a broken delivery
+  route makes the failure report invisible, so the user sees silence instead of an
+  error. Fix: `hermes cron edit <job_id> --deliver "feishu:<chat_id>"` (omit the thread
+  id). Full diagnosis + 3-step verification in `references/feishu-stale-thread-id-delivery-failure.md`.
+
 ## Cross-reference: known recurring outage
 
 For the `toutiao-article-daily.py` QQ SMTP outage (20+ nights as of 2026-09-13, identical `Connection unexpectedly closed` every night, auth code `iylylmwnitbbbebi` revoked), see `references/toutiao-cron-outage-2026-08.md`. It contains the verbatim QQ-web-UI fix steps, the outbox cleanup recipe, the terse-report pattern from Case H, and Cases I/J/L for refined probe recipes. **If you see a `Connection unexpectedly closed` on `smtp.qq.com:465` for `569545015@qq.com`, read that file first — the credential is almost certainly already revoked and the outbox already has today's content.**
