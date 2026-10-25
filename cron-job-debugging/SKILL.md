@@ -437,6 +437,33 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   `references/outage-readme-template.md` for the full template and
   "what goes in vs out" rules.
 
+- **⚠️ A dead mail channel is not a dead content channel (2026-10-25, failure #62).**
+  When the email/SMTP channel has been down for weeks but the cron also has a healthy
+  chat-platform `deliver` route, **push the content as a native file attachment on that
+  route** instead of only writing a report that says "email failed". Working recipe:
+  `tools.send_message_tool._send_to_platform(Platform.FEISHU, pconfig, chat_id, caption,
+  thread_id=None, media_files=[(abs_html_path, False)])` → returns
+  `{'success': True, 'message_id': 'om_...'}`. Verify by reading the message back
+  (`lark.im.v1.GetMessageRequest` → confirm `msg_type == 'file'`, `deleted == False`).
+  Caveats: `.html` is NOT in the `MEDIA:` regex whitelist but IS in `extract_local_files`'s
+  `_LOCAL_MEDIA_EXTS`, and Feishu `file_type=stream` accepts arbitrary files; the SDK class
+  is `lark.im.v1.GetMessageRequest` (top-level, not `lark.im.v1.message.*`); delete any
+  superseded duplicate message so the user doesn't get two files. Be explicit in the report
+  that this is a **channel substitution, not a mailbox fix** — the QQ auth code still needs
+  regenerating if `569545015@qq.com` is the destination that matters.
+  See `references/toutiao-cron-outage-2026-10-week4.md` Case Y.
+
+- **⚠️ `str.format(**kwargs)` silently DROPS kwargs the template doesn't reference (2026-10-25).**
+  `generate_article()` passed `story_a_dialogue` / `story_a_ending` / `story_b_ending` into
+  `HTML_TEMPLATE.format(...)`, but the template had **no placeholders for them** — so they were
+  accepted and thrown away with no error. Every article since v1.1.0 shipped with its story
+  dialogue and endings missing, silently violating 「故事要完整」. `str.format()` raises only on
+  *missing* placeholders, never on *unused* kwargs.
+  **Rule: after ANY generator/template edit, read the rendered product back and grep for the
+  key content fields** — "renders without error" does NOT prove the output is complete.
+  Verify the product, not the process. Same class of bug applies to any
+  `dict`-driven template (`jinja2` silently renders empty for undefined vars too).
+
 - **One revoked credential fails N scripts, not one.** When a content-platform
   cron (e.g. `toutiao-article-daily.py`) hits `SMTPServerDisconnected`, grep
   the whole `~/.hermes/cron/scripts/` directory for `smtp_pass` /
