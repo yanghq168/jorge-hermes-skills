@@ -164,4 +164,137 @@ The Case W prune recipe uses `datestr="${fname:8:8}"` for `PENDING_<date>.html` 
 - **Feishu delivery**: SUCCESS — `om_x100b62eb37c1fc20dd682b8b7132015`, `msg_type=file`, `deleted=False`, file_name `20261025_2030_遗产分配.html`
 - **Content bug fixed**: `story_a_dialogue` / `story_a_ending` / `story_b_ending` now render (see Finding 2)
 - **Permanent Feishu fallback added** to `toutiao-article-daily.py::send_email()`
-- **Outbox after prune**: 55 HTML + 23 PENDING + 1 STANDBY, 944 KB
+### Outbox after prune: 55 HTML + 23 PENDING + 1 STANDBY, 944 KB
+
+---
+
+## Case Z — Failure #63 (2026-10-26): the Feishu fallback silently broke under classic cron, and the topic pool had no rotation
+
+Two bugs found and fixed. The first is a **verification gap** in Case Y's own recipe; the second is a **content-quality** bug that had been hurting traffic for weeks without anyone noticing.
+
+### Finding 1 — Case Y's Feishu recipe only works under the venv interpreter
+
+Case Y's `_try_feishu_attachment()` imported Hermes' delivery module **in-process**:
+
+```python
+from gateway.config import Platform, load_gateway_config
+from tools.send_message_tool import _send_to_platform
+```
+
+That needs `lark_oapi`, which is installed **only** in `~/.hermes/hermes-agent/venv` — not in `/usr/bin/python3`. Classic crontab runs the script with `/usr/bin/python3`:
+
+```
+30 20 * * * python3 /home/ubuntu/.hermes/cron/scripts/toutiao-article-daily.py >> .../toutiao-article-daily.log 2>&1
+```
+
+So every classic-cron night the fallback returned `Feishu dependencies not installed` and the user got **nothing but an outbox file**. On 2026-10-25 the fallback *worked* — because that session ran the script by hand under the venv python, where `sys.executable` happened to be the venv. **The manual test masked the environment difference.** This is the same class of bug as "verified by hand, broken in production."
+
+**Detection recipe** (whenever a cron script's fallback channel "worked yesterday but not tonight"):
+
+```bash
+# Which interpreter does classic cron actually use?
+env -i /bin/sh -c 'command -v python3; python3 -c "import sys; print(sys.executable)"'
+# → /usr/bin/python3
+
+# Does that interpreter have the dependency the fallback needs?
+/usr/bin/python3 -c "import lark_oapi" 2>&1 | tail -1
+# → ModuleNotFoundError: No module named 'lark_oapi'
+
+# Which one does have it?
+/home/ubuntu/.hermes/hermes-agent/venv/bin/python3 -c "import lark_oapi; print('OK')"
+```
+
+**Fix — make the fallback interpreter-agnostic.** Extract the delivery logic into a standalone module and call it as a **subprocess with an explicit interpreter**:
+
+```python
+# toutiao-article-daily.py::_try_feishu_attachment
+venv_python = '/home/ubuntu/.hermes/hermes-agent/venv/bin/python3'
+python_bin = venv_python if os.path.isfile(venv_python) else os.sys.executable
+proc = subprocess.run([python_bin, helper, str(html_path), caption, chat_id],
+                      capture_output=True, text=True, timeout=90)
+```
+
+New file `~/.hermes/cron/scripts/_feishu_deliver.py` — importable *and* executable:
+- `deliver(html_path, caption, chat_id)` → `(ok, message)`
+- CLI: `python3 _feishu_deliver.py <abs_html_path> "<caption>" [chat_id]`
+
+**Verification (must use the cron interpreter, not the venv):**
+
+```bash
+/usr/bin/python3 -c "
+import importlib.util
+spec = importlib.util.spec_from_file_location('t','/home/ubuntu/.hermes/cron/scripts/toutiao-article-daily.py')
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+print(m._try_feishu_attachment('/abs/path/article.html', {'direction':'X','title':'Y'}))
+"
+# → 飞书附件投递成功 (message_id=om_...)
+```
+
+Then read the message back via `lark.im.v1.GetMessageRequest` → confirm `msg_type == 'file'`, `deleted == False`, `file_name` matches.
+
+**Rule: a fallback that runs in-process inherits the *caller's* interpreter. If the caller may be a different interpreter than the one that has the dependency, the fallback must spawn its own.** Always test the fallback with the *cron's* interpreter, not the interactive one.
+
+### Finding 2 — `random.choice()` on a 6-item pool with no history = the same headline 5 days in a row
+
+`TOPICS_POOL` has 6 long-form topics. `generate_article()` did `topic = random.choice(TOPICS_POOL)` with no memory. Auditing the outbox filenames for the last 7 days:
+
+```
+10-21 赡养义务   10-22 赡养义务   10-23 赡养义务 + 房产纠纷
+10-24 房产纠纷   10-25 遗产分配   10-26 赡养义务
+```
+
+赡养义务 ran **5 of 7 days**, and every run emitted the byte-identical headline *"67岁老人被三个儿子轮流养老，每家住四个月，第三家说'住够了'"*. For a pipeline whose stated purpose is 「长文吃流量」, replaying the same headline to the same audience is a direct traffic loss — returning readers see a duplicate and scroll past.
+
+**Fix — history-backed rotation:**
+
+```python
+HISTORY_FILE = '/home/ubuntu/.hermes/cron/outbox/toutiao/topic_history.json'
+MICRO_HISTORY_FILE = '.../micro_topic_history.json'
+MAX_RECENT = 5
+
+def _pick_topic(pool, history_path, key='direction'):
+    history = _load_history(history_path)
+    recent = [str(h.get(key)) for h in history[-MAX_RECENT:]] if history else []
+    fresh = [t for t in pool if str(t.get(key)) not in recent]
+    return random.choice(fresh) if fresh else random.choice(pool)
+```
+
+Same pattern for micro-articles, minus same-day duplicates. **Seed the history file from the existing outbox filenames** so the rotation starts correct on day one:
+
+```python
+for f in sorted(glob.glob('outbox/toutiao/2026*.html'))[-7:]:
+    parts = os.path.basename(f)[:-5].split('_')
+    hist.append({'key': '_'.join(parts[2:]), 'date': ...})
+```
+
+**Rule: any content pipeline with a finite topic pool needs cross-day de-duplication, and the pool size sets the rotation period (6 topics ≈ 6-day cycle).** An operator can audit this cheaply: `ls -1 outbox/*/*.html | sed 's/.*_//'` and count direction frequency.
+
+### Finding 3 — `exit 0` on failure kept both schedulers green (Case M, now fixed in code)
+
+`main()` printed `❌ 发送失败` and returned normally → classic cron logged success, `jobs.json` recorded `last_status: ok`. Neither scheduler could see the failure. Now:
+
+```python
+if '飞书附件投递成功' not in msg:
+    raise SystemExit(1)
+```
+
+The `in msg` check matters: when the Feishu fallback *did* deliver, the user really did get the content, so the exit code must stay 0. A blind `exit 1` would have turned a successful (fallback-delivered) night into a red cron for no reason.
+
+### Today's run (2026-10-26, failure #63)
+
+- **Generated**: 长文《67岁老人被三个儿子轮流养老，每家住四个月，第三家说"住够了"》（赡养义务）+ 微头条《婆婆来家里住了一个月，我瘦了8斤》《随了20年份子钱...》
+- **Cron trigger**: classic crontab 20:30:00 (赡养义务). Agent-mode report session did **not** re-run the script (Case R).
+- **HTML backup**: `20261026_2030_赡养义务.html` (21.7 KB / 2879 Chinese chars; all three story sections verified present)
+- **Feishu delivery**: SUCCESS — `om_x100b62c0c035e8a8c09b7a1dc4978fd`, `msg_type=file`, `deleted=False`
+- **Fixes**: `_feishu_deliver.py` subprocess fallback (interpreter-agnostic) + topic rotation history + `exit 1` on true failure
+- **README**: extended to 20 `## ` entries
+
+### Updated decision rule (N=63)
+
+| Failure count | Probe? | Article inline? | Feishu attachment? | Topic rotation? | Exit code honest? | README? |
+|---|---|---|---|---|---|---|
+| 1-9 | Yes | Yes | Yes | Yes | Yes | Yes |
+| 10-29 | Skip | NO | Yes (verify with **cron's** interpreter) | Yes | Yes | Yes |
+| 30-52 | Skip | NO | Yes | Yes | Yes | Yes |
+| ≥53 | Skip | NO | Yes | Yes | Yes | **Yes — mandatory** |
+| **63 (today)** | Skip | NO | **Yes — fixed & verified** | **Yes — added** | **Yes — fixed** | **Yes (20 entries)** |
