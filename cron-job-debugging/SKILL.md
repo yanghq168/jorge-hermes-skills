@@ -453,6 +453,41 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   regenerating if `569545015@qq.com` is the destination that matters.
   See `references/toutiao-cron-outage-2026-10-week4.md` Case Y.
 
+- **⚠️ A dedup helper whose read key ≠ write key fails SILENTLY and forever (2026-10-27).**
+  A content-generator can look like it has working cross-day topic rotation while
+  never actually deduplicating. The failure mode: `_record_topic()` appends
+  `{'key': ..., 'title': ..., 'date': ...}` but `_pick_topic()` reads
+  `h.get('direction')` → every lookup returns `None` → `recent` becomes
+  `['None','None',...]` → the "not recently used" candidate set is always the
+  FULL pool → `random.choice(fresh)` degenerates to uniform random over the pool.
+  No exception, no warning, no visible symptom other than repeated titles.
+  **Detection recipe:** compare the key the writer emits against the key the
+  reader looks up, then assert the candidate set is actually smaller than the pool:
+  ```python
+  recent = [mod._hist_key(h) for h in hist[-mod.MAX_RECENT:]]
+  fresh = [t for t in POOL if t['direction'] not in recent]
+  assert len(fresh) < len(POOL), "dedup is a no-op!"
+  ```
+  **Rule: whenever you add cross-day rotation, write an assertion that the
+  candidate set SHRINKS, and simulate N future days before shipping.**
+  A 12-day simulation should show 0 consecutive repeats and even distribution
+  across the pool. "It generates different things" is not evidence of dedup.
+
+- **⚠️ A brand-new history file starts EMPTY → dedup silently does nothing until backfilled (2026-10-27).**
+  When you introduce a rotation feature and seed its history file with *only
+  today's picks*, the dedup window has no prior data to compare against, so the
+  feature is a no-op on day 1 and stays a no-op until the window fills (~5 days).
+  Real damage measured here: micro-topic history created 10-26 with only 2
+  entries → near-8-day observed distribution was 婆媳关系 ×15, 老年婚姻 ×12,
+  养老金 ×11 — the same micro-post went out many nights running.
+  **Fix:** backfill the history file from ground truth before shipping —
+  for this deployment the source of truth was parsing `方向：X` out of the
+  accumulated outbox HTML (`outbox/<platform>/YYYYMMDD_HHMM_<direction>.html`),
+  which yielded 50 micro-topic records for 10-11 → 10-27.
+  **Rule: a new rotation feature ships with (a) a backfill of historical picks
+  and (b) a multi-day simulation showing 0 consecutive repeats.** Verify the
+  *frequency distribution*, not just the presence of the feature.
+
 - **⚠️ `str.format(**kwargs)` silently DROPS kwargs the template doesn't reference (2026-10-25).**
   `generate_article()` passed `story_a_dialogue` / `story_a_ending` / `story_b_ending` into
   `HTML_TEMPLATE.format(...)`, but the template had **no placeholders for them** — so they were
@@ -556,12 +591,35 @@ ls -1 *.html 2>/dev/null | while read f; do
     rm -f "$f"
   fi
 done
-# Also delete the corresponding PENDING symlinks and old STANDBY entries
+# Also delete the corresponding PENDING symlinks and old STANDBY entries.
+# ⚠️ Date-offset traps (verified 2026-10-27, this recipe previously deleted
+# ALL STANDBY files including today's, and left 10 broken PENDING symlinks):
+#   - "PENDING_20261027.html" → date starts at index 8  → "${f:8:8}"  ✅
+#   - "STANDBY_20261027.txt" → date starts at index 9   → "${f:9:8}"  ✅
+#     (PENDING is 7 chars + "_" = 8; STANDBY is 8 chars + "_" = 9)
 ls -1 PENDING_*.html 2>/dev/null | while read f; do
   datestr="${f:8:8}"
   if [[ "$datestr" < "$KEEP_FROM" ]]; then rm -f "$f"; fi
 done
-rm -f STANDBY_<YYYYMMDD_before_KEEP_FROM>.txt
+ls -1 STANDBY_*.txt 2>/dev/null | while read f; do
+  datestr="${f:9:8}"
+  if [[ "$datestr" < "$KEEP_FROM" ]]; then rm -f "$f"; fi
+done
+
+# ⚠️ Deleting a PENDING symlink's target HTML orphans the symlink → broken link.
+# Always sweep broken symlinks after pruning:
+find . -maxdepth 1 -name "PENDING_*.html" -xtype l -delete
+```
+
+**Verification after pruning (never skip):**
+
+```bash
+cd ~/.hermes/cron/outbox/<platform>/
+echo "HTML: $(ls -1 2026*.html 2>/dev/null | wc -l)  PENDING: $(ls -1 PENDING_*.html 2>/dev/null | wc -l)  STANDBY: $(ls -1 STANDBY_*.txt 2>/dev/null | wc -l)"
+# every PENDING symlink must resolve
+for f in PENDING_*.html; do [ -e "$f" ] || echo "BROKEN: $f"; done
+# today's content + today's STANDBY must still exist
+ls -la PENDING_$(date +%Y%m%d).html STANDBY_$(date +%Y%m%d).txt
 ```
 
 **Don't prune without preserving the README's history.** The README's "持续中 — 第N天" entries are the cross-session memory; the user may want to read them when they finally fix the auth code to see how long the outage ran. The recipe above leaves `README.md` untouched.
