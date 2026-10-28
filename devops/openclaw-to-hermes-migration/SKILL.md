@@ -144,9 +144,17 @@ OpenClaw's `agents/` and `agency-agents/` directories contain 100+ `.md` role de
 # Copy agent definitions
 mkdir -p ~/.hermes/skills/agent-roles/references
 cp -r source-repo/agents/* ~/.hermes/skills/agent-roles/references/
-
-# Create catalog skill (see templates/agent-roles-catalog.md)
 ```
+
+Then write `~/.hermes/skills/agent-roles/SKILL.md` as a **catalog**: frontmatter
+with `name` + `description`, a per-category table (role name → one-line duty),
+and the counts. The catalog is documentation, not an executable skill.
+
+> **Already done on this deployment.** The `agent-roles` skill is live at
+> `~/.hermes/skills/agent-roles/` with a 15-category SKILL.md and the role
+> definitions under `references/`. Use it as the worked example of a finished
+> catalog — don't rebuild it from scratch if the source repo is the same
+> `jorge-agency` one.
 
 ### 6. Clean Up OpenClaw-Specific References
 
@@ -302,7 +310,27 @@ For step-by-step cron job migration patterns, see:
 - `templates/cron-config-loader.py` — Unified config loader for migrated cron jobs. Copy to `~/.hermes/cron/scripts/config_loader.py` and customize paths.
 - `templates/cron-config.yaml` — Unified configuration template. Copy to `~/.hermes/cron/config/config.yaml` and fill in your credentials.
 - `templates/backup-repo-setup.sh` — Script to create new GitHub backup repos (skills + agency) with SSH auth. Run after migration to set up separate backup targets that do NOT overwrite existing OpenClaw repos.
-- `references/github-token-types.md` — GitHub Fine-Grained vs Classic PAT differences. Critical: Fine-Grained PATs (`github_pat_*`) do NOT work for Git operations (push/clone). Use SSH keys or Classic PATs for backup scripts.
+
+## Where the cron knowledge lives after migration
+
+Migration *creates* cron jobs; it does not own how they are diagnosed. Once the
+scripts are installed, hand off to the class-level skills:
+
+- **`cron-job-debugging`** — the umbrella for Hermes scheduled-job failures.
+  Use it for: silent no-op jobs, `Script not found` (script-path resolution
+  against `~/.hermes/scripts/`), `last_status` masking, SMTP/credential
+  delivery failures, the outbox backup pattern, and duplicate scheduled
+  tasks (`cron-job-debugging/references/no-agent-false-error-reporting.md`,
+  `cron-job-debugging/references/duplicate-scheduled-task-detection.md`).
+  **Read the migrated jobs' outbox `README.md` before diagnosing anything.**
+- **`content-platforms`** — if the migrated scripts are content-distribution
+  pipelines (WeChat / XHS / Toutiao / Douyin), the content SOPs, HTML email
+  templates, per-platform sender labels, and viral-title formulas live there.
+- **`github-repo-management`** — for pushing the migrated skills to GitHub
+  (SSH deploy keys, rsync timeouts, force-sync recipes).
+
+This skill covers the **one-time conversion** (format, paths, CLI commands,
+credential plumbing). Runtime behaviour belongs to the skills above.
 
 ## Related
 

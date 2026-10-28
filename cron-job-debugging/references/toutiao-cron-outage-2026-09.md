@@ -1,6 +1,6 @@
 ## Case W — 53rd consecutive SMTP failure: outbox pruning + README extension skip (2026-10-16)
 
-The `toutiao-article-daily.py` cron failed for the **53rd consecutive night** (since 2026-08-25). Same auth code (`iylylmwnitbbbebi`), same `Connection unexpectedly closed`, same Case H terse dispatch. Two genuinely new operational lessons this cycle:
+The `toutiao-article-daily.py` cron failed for the **53rd consecutive night** (since 2026-08-25). Same auth code (`<revoked auth code>`), same `Connection unexpectedly closed`, same Case H terse dispatch. Two genuinely new operational lessons this cycle:
 
 ### Lesson 1 — Outbox pruning recipe when accumulation gets unwieldy
 

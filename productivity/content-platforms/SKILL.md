@@ -48,11 +48,14 @@ cronjob (定时)
 - `references/wechat-article-daily.md` — 公众号文章生成器完整数据结构说明（含TOPICS_POOL字段、模板变量、检查清单实现细节）
 - `references/wechat-md-format.md` — 公众号文章 MD 格式规范（**重要**：公众号不再发邮件，改为生成 MD 文件推送飞书，格式要求见此文件）
 - `references/toutiao-article-daily.md` — 头条号文章生成器参考实现
+- **`references/topic-pool-rotation-and-length-engineering.md`** — **选题池轮换与字数工程（通用）**：池子大小=轮换周期、去重窗口必须跟随池子大小、窗口按「条数」算对微头条是错的、LRU 算法、`str.format()` 静默丢弃 kwargs、检查清单数字必须被自动断言。适用于任何「有限选题池+每日产出」的 cron 内容脚本
 - `references/xhs-travel-guide-sample.md` — 小红书旅游攻略参考实现
 - `references/xhs-travel-script-identifier.md` — **两个旅游脚本辨析**：`xhs-travel-daily.py`（主，23:00）vs `xiaohongshu-travel-daily.py`（旧，已停用）+ shell转义踩坑
-- `references/dedup-cronjobs.md` — 排查重复内容推送任务：如何发现和清理重复的cronjob/crontab任务
 - `references/dedup-visited-destinations.md` — 小红书旅游脚本景点去重机制：_pick_unvisited()实现、追踪文件、循环覆盖逻辑
-- `references/cron-diagnostics.md` — Cron 任务状态误报（no_agent script error）的诊断方法
+- **`cron-job-debugging` 技能** — Cron/SMTP/outbox 故障的诊断职责归属（该技能是 Cron 故障的 umbrella，本技能只负责内容生成）：
+  - `cron-job-debugging/references/no-agent-false-error-reporting.md` — no_agent 脚本 `last_status: error` 误报的判别
+  - `cron-job-debugging/references/duplicate-scheduled-task-detection.md` — 重复调度任务排查（jobs.json vs crontab、同一功能不同文件名脚本、旧品牌名清理）
+  - `cron-job-debugging/references/case-log-chronic-outage.md` — 长期 SMTP 故障的完整案例日志与 18 条经验沉淀
 - `references/douyin-hotsearch-to-article-sop.md` — **抖音热搜变爆款文章SOP：从热搜采集到多平台分发的完整操作流程**
 - `references/viral-title-templates.md` — 爆款标题模板库（5种类型×3个模板，含热词类型→标题类型映射和代码移植建议）
 - `references/unified-content-daily.md` — 全平台内容生成脚本 `unified-content-daily.py` 参考实现（含 Image2 生图提示词逻辑、图文素材表结构、邮件HTML模板）
@@ -293,21 +296,44 @@ for item in items:
 
 ### 常见踩坑
 
+- **选题池轮换 = 池子大小，扩池必须同时改去重窗口（2026-10-28）**：`TOPICS_POOL` 只有 6 条 + `MAX_RECENT=5` 固定窗口 = 6 天一轮换，同一标题每 6 天必然复现（65 天累计每篇重复 11 次），对「长文吃流量」是硬伤。修三处：① 扩池到 10 条 ② **去重窗口跟随池子大小**（固定窗口会让扩库失效）③ 选择算法改 LRU。完整实现见 `references/topic-pool-rotation-and-length-engineering.md`。
+- **去重窗口按「条数」算，对微头条是错的**：长文 1 条/天，窗口 9 条 ≈ 9 天没问题；微头条 **2 条/天**，同样窗口只覆盖 **4.5 天**，窗口没填满时 `fresh` 子集仍有 7-8 条候选，随机选就有实打实的撞车概率（30 天模拟实测连续重复 6 次、只覆盖 6/10 方向）。**改用 LRU**（取最久未出现的那条）后：连续重复 0、10/10 方向覆盖、分布完全均匀。
+- **去重「配了但没生效」= 读写端字段名不一致**：`_record_topic()` 写 `'key'`，`_pick_topic()` 读 `h.get('direction')` → `recent` 恒为 `['None','None',...]` → `fresh` 恒等于全池，去重**静默失效**且无任何报错。读取端必须用 `_hist_key()` 兼容 `'key'`/`'direction'` 两种字段名。
+- **轮换模拟绝不能读生产 history 文件**：用真实 `topic_history.json` 做模拟会污染生产数据并让结论失真（早期一次模拟因此得出「微头条只覆盖 4/10」的假结论）。必须用临时文件，且被测函数支持注入路径（`_pick_micro_index(used, history_path=None)`）。改完用 `diff` 确认生产文件未被污染。
+- **脚本文件名带连字符 ⇒ 无法 `import`**：`toutiao-article-daily.py` 只能 `importlib.util.spec_from_file_location(...)` 加载。连带后果：不要依赖 `sys.path[0]`（cron 下是脚本目录、测试下是 cwd），扩库模块要显式插入 `__file__` 所在目录；扩库失败要有 `except ImportError` 兜底 + 告警，不能让整条管线挂掉。
+- **脚本自带的检查清单数字必须被自动断言**：`CHECKLIST_ITEMS` 里写着「文章字数够不够长？（1500字以上）」，但实测每篇只有 813-1159 字，**没有一篇达标** —— 清单是愿望，从来没人量过。写进清单的每个数字都该配一条自动断言。
 - **f-string反斜杠**：Python 3.12禁止在f-string内使用反斜杠，先拼接中间变量再塞入f-string
-- **邮件发送失败**：先检查 `python3 ~/.hermes/cron/scripts/<script>.py` 是否能单独运行成功；若端口通但 AUTH 失败（535 Login fail），可能是腾讯云 IP 被 QQ 邮箱拒绝，此时内容改由 Lark `deliver=origin` 直推，不再依赖邮件
-  - **⚠️ 邮件失败时的内容保护（重要）**：当 SMTP 授权码失效时（QQ 静默拒绝，错误为 `Connection unexpectedly closed`/`SMTPServerDisconnected`），脚本会在 `~/.hermes/cron/outbox/<platform>/` 目录下自动备份 HTML——这是 **content 救命兜底**，不要清空 outbox/，那是用户唯一的内容副本。完整跨会话故障记忆体系见 `cron-job-debugging` 技能（Cases A-V），三种 outbox 产物并存：
+- **邮件发送失败 / SMTP 授权码失效**：诊断流程属于 `cron-job-debugging` 技能的职责，不要在这里重复推导。内容侧只需要知道三件事：
+  1. **内容永远先落盘再发送**：`send_email()` 失败时脚本会把渲染好的 HTML 备份到 `~/.hermes/cron/outbox/<platform>/`——这是用户唯一的内容副本，**不要清空 outbox/**。
+  2. **三种 outbox 产物并存**（由 `cron-job-debugging` 统一定义，不要在本技能另立一套）：
 
-  | 产物 | 大小 | 写入位置 | 用途 |
-  |------|------|---------|------|
-  | `YYYYMMDD_HHMM_<方向>.html` | ~27 KB | `send_email()` 失败 catch 块 | 完整渲染内容，用户手动打开 |
-  | `PENDING_<日期>.html` 软链接 | 31 B | 同上 catch 块 | 当晚"如果只能选一篇"的标记 |
-  | **`STANDBY_<日期>.txt`** | ~500 B | **`main()` 失败分支（必加）** | 纯文本投递元数据（选题/方向/HTML 路径/≤200 字原因），用于报告渠道（飞书/Lark/Slack）不渲染文件路径时做 pickup 提示 |
+     | 产物 | 大小 | 写入位置 | 用途 |
+     |------|------|---------|------|
+     | `YYYYMMDD_HHMM_<方向>.html` | ~27 KB | `send_email()` 失败 catch 块 | 完整渲染内容，用户手动打开 |
+     | `PENDING_<日期>.html` 软链接 | 31 B | 同上 catch 块 | 当晚"如果只能选一篇"的标记 |
+     | `STANDBY_<日期>.txt` | ~500 B | `main()` 失败分支（必加） | 纯文本投递元数据（选题/方向/HTML 路径/≤200 字原因），用于报告渠道（飞书/Lark/Slack）不渲染文件路径时做 pickup 提示 |
 
-  **`STANDBY` 已固化在 `toutiao-article-daily.py::main()`（2026-10-12 添加）**。复制到其他内容脚本（`wechat-article-daily.py` / `unified-content-daily.py` / `xhs-travel-daily.py` / `xiaohongshu-travel-daily.py` / `xhs-escape-weekend.py` / `bithappy_email_pro.py`）时：写入位置改成对应 `outbox/<platform>/`，发件人标签从"头条"改为对应平台名（公众号/小红书/抖音/选题），但字段结构（选题/方向/时长/HTML/原因）保持不变。**不要把 `STANDBY` 写到 `if not success:` 分支之外**（成功时也写会让消费者误判为失败信号），也**不要写到 `~/.hermes/cron/output/<job_id>/` 下**（那是调度器日志目录，混入会污染"脚本是否成功运行"的记录）。
-  - **当 outbox 连续累积 ≥3 天的 HTML 时**：QQ SMTP 授权码已彻底失效，直接告诉用户去 `mail.qq.com → 设置 → 账户` 重新生成授权码，而不是反复诊断网络。完整诊断流程见 `cron-job-debugging` 技能的 Case A-G（含探针脚本 `scripts/probe_smtp.py`）。**Outage 持续 N≥10 天时**：不要再跑探针——用 `cron-job-debugging` Case H 的 4 行极简 dispatch 模板（`outbox/路径` + 一次性 fix 命令），同时按 `references/outage-readme-template.md` 模板把 `## YYYY-MM-DD（持续中 — 第N天）` 追加到 `outbox/<platform>/README.md`（README 是跨会话记忆，单次 cron 报告会被滚动覆盖）。
-  - **5 秒钟鉴别 IP-block vs credential 失效**：当 SMTP 返回 `SMTPServerDisconnected: Connection unexpectedly closed` 时，跑一次错密码对比测试（详见 `cron-job-debugging` Case K）。如果正确密码和错误密码返回**完全相同的错误**（连 timing 都一样，<1s），就是 **IP-level AUTH block**（云服务器共享 IP 被 QQ 风控），不是授权码失效。修复路径一样（重生成授权码），但应优先推荐 Resend/SMTP2GO/SendGrid 等第三方 SMTP 中继（静态 API key，不会因 IP 风控失效）。授权码重生成是临时绕过，迁移中继才是根本解。
-  - **导入脚本而不触发 SMTP**（用于在 cron 跑挂时手动验证内容生成）：用 `importlib.util.spec_from_file_location` 加载脚本，stub `send_email` 后调用 `generate_article()` 和 `generate_micro_articles()` 直接拿到 HTML，跳过邮件。详见 `cron-job-debugging` Case G
-  - **修复 QQ 授权码后的清理**：`mkdir -p ~/.hermes/cron/outbox/<platform>/<年月>_archive` 把旧的失败 HTML 归档，并在 `outbox/<platform>/README.md` 追加 outage log
+  3. **`STANDBY` 已固化在 `toutiao-article-daily.py::main()`（2026-10-12 添加）**，复制到其他内容脚本时按下表改路径与发件人标签，字段结构（选题/方向/时长/HTML/原因）保持不变：
+
+     | 脚本 | outbox 子目录 | 发件人标签 |
+     |------|--------------|-----------|
+     | `toutiao-article-daily.py` | `outbox/toutiao/` | 头条 |
+     | `wechat-article-daily.py` | `outbox/wechat/` | 公众号 |
+     | `unified-content-daily.py` | `outbox/unified/` | 选题 |
+     | `xhs-travel-daily.py` | `outbox/xhs/` | 小红书 |
+     | `xiaohongshu-travel-daily.py` | `outbox/xhs/` | 小红书 |
+     | `xhs-escape-weekend.py` | `outbox/xhs/` | 小红书 |
+     | `bithappy_email_pro.py` | `outbox/email/` | 选题 |
+
+     **不要把 `STANDBY` 写到 `if not success:` 分支之外**（成功时也写会让消费者误判为失败信号），也**不要写到 `~/.hermes/cron/output/<job_id>/` 下**（那是调度器日志目录，混入会污染"脚本是否成功运行"的记录）。
+
+  诊断与修复交给 `cron-job-debugging`：
+  - 完整 SMTP 诊断流程（含 `scripts/probe_smtp.py` 探针、535/silent-reject 判别、端口 465/587 切换）→ `cron-job-debugging` §5
+  - outbox 累积 ≥3 天 ⇒ 授权码已失效，直接引导用户去 `mail.qq.com → 设置 → 账户` 重生成授权码 → `cron-job-debugging` 的 Escalation policy
+  - 持续 N≥10 天 ⇒ 用 `cron-job-debugging` 的 4 行极简 dispatch 模板，并把 `## YYYY-MM-DD（持续中 — 第N天）` 追加到 `outbox/<platform>/README.md`（README 是跨会话记忆，单次 cron 报告会被滚动覆盖）
+  - ⚠️ **不要依据 `SMTPServerDisconnected` 判定"IP-level AUTH block"**：该假设（Case K）已在 2026-10-20 被原始 socket 对照实验推翻——本部署始终是普通 535 凭据失效。详见 `cron-job-debugging` 的 Case K 纠正说明。
+  - 授权码修复后的清理：`mkdir -p ~/.hermes/cron/outbox/<platform>/<年月>_archive` 归档旧的失败 HTML，并在 `outbox/<platform>/README.md` 追加 outage log
+
 - **cron job 内调用 hermes send 发到同一目标会被拦截**：当 `deliver=origin` 把 cron 输出推到 Lark DM/话题时，cron job 里**不要再调用 `hermes send --to feishu:<当前chat_id>`**——系统会返回：
   - bare chat_id（`feishu:oc_xxx`）→ `Skipped send_message to ... This cron job will already auto-deliver its final response to that same target. Put the intended user-facing content in your final response instead`
   - 带话题（`feishu:oc_xxx:omt_xxx` 或 `feishu:oc_xxx / topic omt_xxx`）→ `[99992402] field validation failed`

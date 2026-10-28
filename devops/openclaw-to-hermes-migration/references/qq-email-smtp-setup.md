@@ -16,7 +16,7 @@ mail:
 
 ### Environment variables (optional)
 ```bash
-QQ_EMAIL_AUTH_CODE=iylylmwnitbbbebi
+QQ_EMAIL_AUTH_CODE=<REVOKED_AUTH_CODE>
 QQ_EMAIL_USER=569545015@qq.com
 ```
 
@@ -46,7 +46,7 @@ SMTP_PASS = "YOUR_AUTH_CODE"
 
 msg = MIMEMultipart('alternative')
 msg['Subject'] = "Test Email"
-msg['From'] = "权权管家 <569545015@qq.com>"
+msg['From'] = "权权的HERMES <569545015@qq.com>"
 msg['To'] = "569545015@qq.com"
 
 html = "<html><body><h2>Test</h2></body></html>"
@@ -71,11 +71,21 @@ print("Email sent successfully")
 
 ## Fleet-wide Failure Diagnostic
 
-When a cron mail job suddenly starts failing, the error is almost always **shared infrastructure**, not the script. QQ auth codes can expire or get flagged by QQ's anti-abuse system without warning — this breaks every cron job that sends through that account at once.
+> **This section defers to the `cron-job-debugging` skill**, which owns the
+> canonical diagnosis for QQ SMTP credential failures. That skill has the
+> full evidence trail (Case A/B transcripts, the `scripts/probe_smtp.py`
+> probe, the escalation policy by failure count, and the outbox recovery
+> recipe). What follows is only the migration-specific starting point.
 
-**Diagnostic recipe (1 minute):**
+When a migrated cron mail job suddenly starts failing, the error is almost
+always **shared infrastructure**, not the script: QQ auth codes get revoked by
+QQ's anti-abuse system without warning, which breaks every cron job that sends
+through that account at once.
+
+**Start here (1 minute):**
+
 ```bash
-# 1. Reproduce the failure outside the script
+# 1. Reproduce outside the script
 python3 -c "
 import smtplib
 with smtplib.SMTP_SSL('smtp.qq.com', 465, timeout=15) as s:
@@ -85,22 +95,25 @@ with smtplib.SMTP_SSL('smtp.qq.com', 465, timeout=15) as s:
 
 # 2. Check sibling cron logs to see if it's fleet-wide
 tail -10 ~/.hermes/cron/logs/wechat-article-daily.log
-tail -10 ~/.hermes/cron/logs/bithappy-email.log
-tail -10 ~/.hermes/cron/logs/daily-report.log
 tail -10 ~/.hermes/cron/logs/toutiao-article-daily.log
 ```
 
-If **all** logs show the same `Connection unexpectedly closed` / `SMTPServerDisconnected`:
-- It's the auth code, not the new job. Don't waste time debugging the new script.
-- Regenerate at mail.qq.com → 设置 → 账户 → POP3/IMAP/SMTP/Exchange/CardDAV/CalDAV服务 → "生成授权码"
-- Update `~/.hermes/cron/config/config.yaml` `mail.smtp_pass` (single source of truth used by `config_loader.py`)
-- Re-test, then re-run failed jobs manually (HTML backups in `~/.hermes/cron/outbox/<job>/`)
+If **all** logs show the same `Connection unexpectedly closed` /
+`SMTPServerDisconnected`: it's the auth code, not your new job. Don't debug the
+new script. Regenerate at mail.qq.com → 设置 → 账户 → POP3/IMAP/SMTP服务, update
+`mail.smtp_pass` in `~/.hermes/cron/config/config.yaml` (the single source of
+truth read by `config_loader.py`), then re-run the failed jobs — HTML backups in
+`~/.hermes/cron/outbox/<job>/` let you re-send without re-generating content.
 
-If **only the new job's log** fails: it's the script. Check `From` header format, charset, retry logic.
+**Full diagnosis (535 vs silent-reject vs real network fault, blast-radius
+across sibling scripts, outbox recovery, escalation policy):**
+→ `cron-job-debugging` skill, §5 "SMTP / credential failure deep-dive" and
+`references/smtp-credential-failure-case-study.md`.
 
-**Why auth codes expire silently:** QQ rotates auth codes when the account has been idle, when security rules change, or after long periods without the user logging into mail.qq.com. There's no advance warning — the SMTP server just starts closing the connection mid-handshake.
-
-**Backup safety net:** A well-built cron mail script writes the full HTML to `~/.hermes/cron/outbox/<job>/` when SMTP fails after retries. When you regenerate the auth code, you can re-send from the outbox directory without re-running the generator.
+**Backup safety net:** a well-built cron mail script writes the full HTML to
+`~/.hermes/cron/outbox/<job>/` when SMTP fails after retries. When you
+regenerate the auth code you can re-send from the outbox without re-running the
+generator — `cron-job-debugging/scripts/resend_outbox_html.py` automates this.
 
 ## Multiple Sender Names
 
@@ -108,10 +121,24 @@ When sending for different platforms, use different `From` names:
 
 ```python
 # 小红书
-msg['From'] = "权权养的虾 <569545015@qq.com>"
+msg['From'] = "权权的HERMES（小红书） <569545015@qq.com>"
 
-# 公众号/抖音
-msg['From'] = "权权管家 <569545015@qq.com>"
+# 公众号
+msg['From'] = "权权的HERMES（公众号） <569545015@qq.com>"
+
+# 头条号
+msg['From'] = "权权的HERMES（头条） <569545015@qq.com>"
 ```
 
 Both use the same SMTP credentials but display different sender names to the recipient.
+
+⚠️ **Brand-name warning.** `权权养的虾` and `权权管家` are **obsolete** sender
+names — the current branding is `权权的HERMES（<平台>）`. Sending under an old
+name is a symptom of a stale script still running (see the duplicate-task
+reference). If you need to find and fix legacy senders:
+
+```bash
+grep -rn "权权养的虾\|权权管家" ~/.hermes/cron/scripts/
+```
+
+The canonical per-platform sender labels live in the `content-platforms` skill.

@@ -1,3 +1,20 @@
+# Duplicate scheduled-task detection
+
+**Class:** Hermes cron misconfiguration. Parent skill: `../SKILL.md`
+(Pitfalls: "`crontab.txt` and Hermes `jobs.json` are independent schedulers",
+"Multiple jobs can hit the same bug at once", and "`hermes cron list` shows
+paused jobs only with `--all`").
+
+Duplicate deliveries are almost never a content bug — they are two schedulers
+(or two same-purpose scripts) firing the same work. The generic detection
+recipe lives here; the content-specific instance (which content scripts are
+duplicates of each other, which brand names are stale) stays in the
+`content-platforms` skill.
+
+Migrated from the `content-platforms` skill.
+
+---
+
 # 排查重复内容推送任务
 
 ## 问题现象

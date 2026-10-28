@@ -2,7 +2,7 @@
 
 A real recurring failure on this Hermes deployment, captured for future sessions to recognize instantly.
 
-**Current status (2026-09-19): 25 consecutive nights, credential `iylylmwnitbbbebi` revoked by QQ anti-spam, outbox has ~40+ HTML files, `jobs.json` shows `last_status: "ok"` (masked — see "Outbox-count vs scheduler view" below).**
+**Current status (2026-09-19): 25 consecutive nights, credential `<revoked auth code>` revoked by QQ anti-spam, outbox has ~40+ HTML files, `jobs.json` shows `last_status: "ok"` (masked — see "Outbox-count vs scheduler view" below).**
 
 ## What's broken
 
@@ -30,7 +30,7 @@ server.send(b"AUTH LOGIN\r\n")
 code, msg = server.getreply()       # 334 VXNlcm5hbWU6  (base64 "Username:")
 server.send(base64.b64encode(b'569545015@qq.com') + b'\r\n')
 code, msg = server.getreply()       # 334 UGFzc3dvcmQ6  (base64 "Password:")
-server.send(base64.b64encode(b'iylylmwnitbbbebi') + b'\r\n')
+server.send(base64.b64encode(b'<AUTH_CODE>') + b'\r\n')
 code, msg = server.getreply()       # 535 Login fail. Account is abnormal, ...
 ```
 
@@ -240,7 +240,7 @@ The trigger for going *back* to the 4-line Case H shape (rather than this hybrid
 6. Edit `~/.hermes/cron/config/config.yaml`:
    ```yaml
    mail:
-     smtp_pass: "NEW_16_CHAR_AUTH_CODE"   # replace iylylmwnitbbbebi
+     smtp_pass: "NEW_16_CHAR_AUTH_CODE"   # replace <revoked auth code>
    ```
 7. Verify from this shell:
    ```bash
@@ -261,7 +261,7 @@ The trigger for going *back* to the 4-line Case H shape (rather than this hybrid
 
 Most likely: the user is either away from the QQ-registered phone (so step 4 SMS can't be received), or has deprioritized this cron relative to other work. The cron does its job (content is generated and backed up locally), so the failure is invisible to anyone not watching the destination mailbox.
 
-## Scripts involved (all share the same `iylylmwnitbbbebi` credential — all fail together, only one update to recover them all)
+## Scripts involved (all share the same `<revoked auth code>` credential — all fail together, only one update to recover them all)
 
 - `~/.hermes/cron/scripts/toutiao-article-daily.py` — has working outbox-fallback pattern (Case C reference implementation), but does NOT `sys.exit(1)` on send failure (Case M masking pitfall)
 - `~/.hermes/cron/scripts/config_loader.py` — `get_mail_config()` reads from `config.yaml`; YAML is the canonical source, not env vars
@@ -288,7 +288,7 @@ The shared `_email_helpers.py` extraction (proposed in Case C, repeated in E + F
 
 ## Case L — 20th consecutive identical SMTP failure: both transports now confirmed to surface explicit 535 (2026-09-13)
 
-The `toutiao-article-daily.py` cron failed for the **20th consecutive night** (since 2026-08-25). Same auth code (`iylylmwnitbbbebi`), same `Connection unexpectedly closed` symptom, same 535 root cause. The outage is now three full weeks old with no user action taken.
+The `toutiao-article-daily.py` cron failed for the **20th consecutive night** (since 2026-08-25). Same auth code (`<revoked auth code>`), same `Connection unexpectedly closed` symptom, same 535 root cause. The outage is now three full weeks old with no user action taken.
 
 ### Both transports surface the same explicit 535 — not a "transport issue"
 
@@ -318,7 +318,7 @@ This is the canonical N=20 template. Skipped (correctly): SMTP transcript, port-
 
 ### When the user finally fixes it — the consolidated post-outage checklist
 
-When `iylylmwnitbbbebi` is finally replaced with a fresh authorization code (likely via QQ web UI per the verbatim steps in the "The fix" section above), the recovery is a single config edit that unblocks **all** the scripts listed in the "Other scripts that would fail identically today" section — six content-platform scripts total, not just `toutiao-article-daily.py`. The `_email_helpers.py` extraction remains the overdue refactor that would prevent future chronic outages by making credential rotation a single-file change.
+When `<revoked auth code>` is finally replaced with a fresh authorization code (likely via QQ web UI per the verbatim steps in the "The fix" section above), the recovery is a single config edit that unblocks **all** the scripts listed in the "Other scripts that would fail identically today" section — six content-platform scripts total, not just `toutiao-article-daily.py`. The `_email_helpers.py` extraction remains the overdue refactor that would prevent future chronic outages by making credential rotation a single-file change.
 
 After the user fixes the credential, also:
 1. Apply the Case M `sys.exit(1)` patch to `toutiao-article-daily.py` so `last_status` is honest.
@@ -329,7 +329,7 @@ Until that lands, the operating assumption for any cron session touching `smtp.q
 
 ## Case Q — 29th consecutive identical SMTP failure: frequency-limit patch + back-to-back script-run anti-pattern (2026-09-23)
 
-The `toutiao-article-daily.py` cron failed for the **29th consecutive night** (since 2026-08-25). Same auth code (`iylylmwnitbbbebi`), same `Connection unexpectedly closed`, same Case H/O/P dispatch should apply. The genuinely new lessons this cycle are (1) a durable code fix to the cron script itself (frequency-limit detection in the retry loop), (2) a concrete anti-pattern about running topic-randomized cron scripts multiple times, and (3) a `PENDING_<date>.html` symlink convention for marking "tonight's article" in the outbox.
+The `toutiao-article-daily.py` cron failed for the **29th consecutive night** (since 2026-08-25). Same auth code (`<revoked auth code>`), same `Connection unexpectedly closed`, same Case H/O/P dispatch should apply. The genuinely new lessons this cycle are (1) a durable code fix to the cron script itself (frequency-limit detection in the retry loop), (2) a concrete anti-pattern about running topic-randomized cron scripts multiple times, and (3) a `PENDING_<date>.html` symlink convention for marking "tonight's article" in the outbox.
 
 ### Lesson 1 — Frequency-limit detection patch: break the retry loop early on known-bad credentials
 
@@ -460,17 +460,17 @@ The Case O pitfall says "always extend the README." This session did NOT do it. 
 cat >> ~/.hermes/cron/outbox/toutiao/README.md <<'EOF'
 
 ## 2026-09-21（持续中 — 第27天）
-- Symptom: Connection unexpectedly closed on smtp.qq.com:465 (auth code iylylmwnitbbbebi)
+- Symptom: Connection unexpectedly closed on smtp.qq.com:465 (auth code <revoked auth code>)
 - Generated content: outbox/toutiao/20260921_2030_遗产分配.html
 - Fix: mail.qq.com → 设置 → 账户 → 重新生成 SMTP 授权码 → 写回 ~/.hermes/cron/config/config.yaml
 
 ## 2026-09-22（持续中 — 第28天）
-- Symptom: Connection unexpectedly closed on smtp.qq.com:465 (auth code iylylmwnitbbbebi)
+- Symptom: Connection unexpectedly closed on smtp.qq.com:465 (auth code <revoked auth code>)
 - Generated content: outbox/toutiao/20260922_2030_赡养义务.html
 - Fix: mail.qq.com → 设置 → 账户 → 重新生成 SMTP 授权码 → 写回 ~/.hermes/cron/config/config.yaml
 
 ## 2026-09-23（持续中 — 第29天）— Case Q
-- Symptom: Connection unexpectedly closed on smtp.qq.com:465 (auth code iylylmwnitbbbebi)
+- Symptom: Connection unexpectedly closed on smtp.qq.com:465 (auth code <revoked auth code>)
 - Generated content: outbox/toutiao/20260923_2030_随礼人情.html (the others were overwritten anti-pattern runs; only this is the "PENDING" symlink target)
 - Code fix applied: send_email() now breaks retry loop on frequency-limit signatures; PENDING_<date>.html symlink convention added
 - Anti-pattern observed: ran script 3x back-to-back, produced 3 outbox files for 20260923

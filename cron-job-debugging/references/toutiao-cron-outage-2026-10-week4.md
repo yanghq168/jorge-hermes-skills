@@ -1,6 +1,6 @@
 ## Case X — Failure #59 (2026-10-19): chronic outage continues, content pipeline healthy, credential diagnosis confirmed
 
-The `toutiao-article-daily.py` cron failed for the **59th consecutive night** since 2026-08-25. Same auth code (`iylylmwnitbbbebi`), same `Connection unexpectedly closed` from `smtp.qq.com:465`. Today's session added three things worth recording:
+The `toutiao-article-daily.py` cron failed for the **59th consecutive night** since 2026-08-25. Same auth code (`<revoked auth code>`), same `Connection unexpectedly closed` from `smtp.qq.com:465`. Today's session added three things worth recording:
 
 ### Lesson 1 — Direct 535 capture via debug-level probe (Case K companion)
 
@@ -298,3 +298,99 @@ The `in msg` check matters: when the Feishu fallback *did* deliver, the user rea
 | 30-52 | Skip | NO | Yes | Yes | Yes | Yes |
 | ≥53 | Skip | NO | Yes | Yes | Yes | **Yes — mandatory** |
 | **63 (today)** | Skip | NO | **Yes — fixed & verified** | **Yes — added** | **Yes — fixed** | **Yes (20 entries)** |
+
+---
+
+## Case AA — Failure #65 (2026-10-28): delivery green, content broken — the second failure mode
+
+Case X/Y/Z all concerned **delivery**. This session found the failure mode that
+survives a perfectly healthy delivery channel: **the pipeline works and the product
+is bad.** The Feishu attachment landed; the file was 400 characters short of the
+script's own checklist target; and the same headline would have repeated every 6th
+night.
+
+### Finding 1 — the script's own checklist had never been measured
+
+`CHECKLIST_ITEMS` contains `"文章字数够不够长？（头条长文吃流量，1500字以上）"`.
+Audited every topic in the pool:
+
+```
+遗产分配 body=813  赡养义务 body=938  亲戚恩怨 body=899
+房产纠纷 body=979  晚年孤独 body=939  随礼人情 body=932
+全篇字数 1072-1446 →  没有一篇达到 1500
+```
+
+The checklist was decoration. Nothing asserted it, so nothing failed.
+**Rule: every number written into a checklist must have a matching automated
+assertion, or it is a wish, not a contract.**
+
+### Finding 2 — pool size IS the rotation period; the window must follow it
+
+`TOPICS_POOL` 6 items + `MAX_RECENT = 5` = a 6-day cycle, so every headline
+recurred every 6th night (≈11 repeats over the 65-day outage). Expanding the pool
+without widening the window is a **no-op** — the fresh-candidate set is still
+window-limited.
+
+Fixed together: pool 6 → 10 (long-form and micro), window `MAX_RECENT` derived as
+`max(pool sizes) - 1`, and selection changed from windowed-random to **LRU**.
+
+### Finding 3 — a record-count window is the wrong unit for a 2-per-day feed
+
+`history[-MAX_RECENT:]` counts **records**. Long-form emits 1/day (window 9 ≈ 9
+days, fine); micro emits **2/day**, so a 9-record window covers 4.5 days. While the
+window fills, the candidate set is 7-8 wide and `random.choice` collides for real.
+
+30-day simulation, old algorithm:
+```
+微头条: 连续重复 6 次, 覆盖 6/10 方向, 分布最差者占 22%
+```
+30-day simulation, LRU:
+```
+长文:   连续重复 0, 10/10 覆盖, 各 3 次完全均匀
+微头条: 连续重复 0, 10/10 覆盖, 各 6 次完全均匀
+```
+
+### Finding 4 — the simulator itself can lie
+
+The first simulation reported "micro covers only 4/10 directions" — a false alarm
+caused by the simulator reading and appending the **live**
+`micro_topic_history.json`. Two fixes: point the module's history globals at
+tempfiles, and make the picker accept an injected path
+(`_pick_micro_index(used_indices, history_path=None)`) so it is testable at all.
+Verified afterwards with `diff` that production history files were untouched.
+
+### Finding 5 — "don't re-run" vs "fix the content"
+
+Case R forbids re-running the script when the outbox already has today's backup.
+But this session had to ship a content fix. Resolution: **fix the code, don't
+re-run production, prove it with an isolated harness** (temp history + temp
+outputs + `importlib.util.spec_from_file_location`, since the hyphenated filename
+can't be `import`ed). Today's already-delivered artifact stayed untouched and
+correct; future nights get the improved content.
+
+### Today's run (2026-10-28, failure #65)
+
+- **Generated**: 长文《63岁大伯给侄子出了20万学费，侄子毕业后第一件事是"断了联系"》（亲戚恩怨）+ 微头条《我60岁，找了个老伴……》《婆婆来家里住了一个月……》
+- **Cron trigger**: classic crontab 20:30. Agent-mode report session did **not** re-run (Case R).
+- **HTML backup**: `20261028_2030_亲戚恩怨.html` (21.6 KB / 2918 Chinese chars)
+- **Feishu delivery**: SUCCESS — `om_x100b612ae23a30a0df87d7d40b3d06e`, `msg_type=file`, `deleted=False`, file_name `20261028_2030_亲戚恩怨.html`
+- **Credential**: unchanged dead code — bare-socket AUTH LOGIN → explicit `535` in 0.54s (Case A). Both `config.yaml` and `.env` hold the same string.
+- **Content fixes shipped**: pool 6→10, LRU rotation, window tracks pool size, story extensions pushing long-form body to 1273-1673 chars (full article 1532-1960)
+- **README**: still needs the `## 2026-10-28（持续中 — 第65天）` block (was 21 `## ` entries before this session)
+
+### Blast radius
+
+9 scripts share `mail.smtp_pass`: `toutiao-article-daily.py`, `wechat-article-daily.py`,
+`unified-content-daily.py`, `daily_report.py`, `bithappy_email_pro.py`,
+`resend_toutiao_today.py`, `xhs-travel-daily.py`, `xhs-escape-weekend.py`,
+`xiaohongshu-travel-daily.py`. One credential rotation restores all nine.
+
+### Updated decision rule (N=65)
+
+| Failure count | Probe? | Article inline? | Feishu attachment? | Content audit? | README? |
+|---|---|---|---|---|---|
+| 1-9 | Yes | Yes | Yes | Yes | Yes |
+| 10-29 | Skip | NO | Yes | Yes | Yes |
+| 30-52 | Skip | NO | Yes | Yes | Yes |
+| 53-64 | Skip | NO | Yes | Yes | Yes |
+| **65 (today)** | Skip (1 bare-socket confirm) | NO | **Yes — verified** | **Yes — 3 defects fixed** | **Yes — pending** |

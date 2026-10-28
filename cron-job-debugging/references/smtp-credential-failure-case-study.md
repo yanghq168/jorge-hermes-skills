@@ -38,7 +38,7 @@ from email.mime.text import MIMEText
 socket.setdefaulttimeout(30)
 smtplib.SMTP.debuglevel = 1
 with smtplib.SMTP_SSL('smtp.qq.com', 465, timeout=30) as s:
-    s.login('569545015@qq.com', 'iylylmwnitbbbebi')
+    s.login('569545015@qq.com', '<REVOKED_AUTH_CODE>')
     s.sendmail('569545015@qq.com', '569545015@qq.com', 'Subject: t\n\ntest')
 "
 ```
@@ -47,7 +47,7 @@ The debuglevel output revealed the 535 in one shot, distinguishing "auth dead" f
 
 ## Credential sources checked
 
-1. `~/.hermes/cron/config/config.yaml` → `smtp_pass: iylylmwnitbbbebi` → 535
+1. `~/.hermes/cron/config/config.yaml` → `smtp_pass: <REVOKED_AUTH_CODE>` → 535
 2. Environment variable `QQ_EMAIL_AUTH_CODE` → 535 (same value, also dead)
 
 Both pointed to the same authorization code being revoked. Could NOT be fixed by the agent — required the user to log into https://mail.qq.com and regenerate the SMTP authorization code.
@@ -108,7 +108,7 @@ The Case A diagnostic recipe ("look at the 535 in the transcript") leads the ope
 
 ### What fixed it (in this session)
 
-The same as Case A — required user to log into https://mail.qq.com → 设置 → 账户 → generate a new SMTP authorization code, then update both `~/.hermes/cron/config/config.yaml` (`smtp_pass`) AND `~/.hermes/.env` (`QQ_EMAIL_AUTH_CODE`). They were the same value (`iylylmwnitbbbebi`) and both were revoked.
+The same as Case A — required user to log into https://mail.qq.com → 设置 → 账户 → generate a new SMTP authorization code, then update both `~/.hermes/cron/config/config.yaml` (`smtp_pass`) AND `~/.hermes/.env` (`QQ_EMAIL_AUTH_CODE`). They were the same value (`<revoked auth code>`) and both were revoked.
 
 ### Additional lesson not in Case A
 
@@ -124,7 +124,7 @@ When they match, you have ONE credential problem, not two. When they differ, you
 
 ## Case C — Recurrence after fix: same code, same script, same week (2026-08-25)
 
-Two days after Case B's fix, the same `toutiao-article-daily.py` cron failed again with the identical `535 Login fail` symptom on the identical `iylylmwnitbbbebi` auth code. Documenting as Case C so future sessions recognize the pattern: **QQ Mail SMTP authorization codes in this deployment have a recurring ~weekly-to-biweekly revocation cycle**, not a one-time expiry.
+Two days after Case B's fix, the same `toutiao-article-daily.py` cron failed again with the identical `535 Login fail` symptom on the identical `<revoked auth code>` auth code. Documenting as Case C so future sessions recognize the pattern: **QQ Mail SMTP authorization codes in this deployment have a recurring ~weekly-to-biweekly revocation cycle**, not a one-time expiry.
 
 ### What was different from Case A/B
 
@@ -150,7 +150,7 @@ The next cron run after the update will succeed. Do NOT apply this same code to 
 
 ## Case D — Third recurrence, same week, outbox pattern validated (2026-08-26)
 
-`toutiao-article-daily.py` cron run at 20:30 produced the identical symptom (`❌ 发送失败：Connection unexpectedly closed`), on the identical auth code `iylylmwnitbbbebi`, with the identical `535 Login fail. Account is abnormal...` in the SMTP transcript. The skill's "do not re-diagnose" rule from Case C applied correctly — went straight to confirming the 535 pattern, identified the outbox backup as the recovery path, and reported both the user-facing fix and the saved artifact in one cycle.
+`toutiao-article-daily.py` cron run at 20:30 produced the identical symptom (`❌ 发送失败：Connection unexpectedly closed`), on the identical auth code `<revoked auth code>`, with the identical `535 Login fail. Account is abnormal...` in the SMTP transcript. The skill's "do not re-diagnose" rule from Case C applied correctly — went straight to confirming the 535 pattern, identified the outbox backup as the recovery path, and reported both the user-facing fix and the saved artifact in one cycle.
 
 ### What this case confirmed
 
@@ -194,7 +194,7 @@ A second option worth proposing to the user when this recurs: **migrate the QQ M
 
 ## Case F — Same auth code, same script, 6th consecutive day: the diagnostic loop now runs in one step (2026-08-28)
 
-The same `toutiao-article-daily.py` cron (20:30 daily) failed for the 6th consecutive night with the identical `Connection unexpectedly closed` symptom on the identical `iylylmwnitbbbebi` auth code. Documenting because by this point the workflow is fully internalized and worth recording as the canonical "this is what it looks like when you know what to do" version of the recipe.
+The same `toutiao-article-daily.py` cron (20:30 daily) failed for the 6th consecutive night with the identical `Connection unexpectedly closed` symptom on the identical `<revoked auth code>` auth code. Documenting because by this point the workflow is fully internalized and worth recording as the canonical "this is what it looks like when you know what to do" version of the recipe.
 
 ### What the canonical 30-second diagnostic now looks like
 
@@ -225,7 +225,7 @@ When the cron is configured with `deliver: origin` (e.g. Feishu topic), the agen
 ⚠️ 发送失败（重要）
 - 收件人 569545015@qq.com 未收到邮件
 - HTML已本地备份：/home/ubuntu/.hermes/cron/outbox/toutiao/20260828_2030_房产纠纷.html
-- 根因：QQ邮箱SMTP授权码 iylylmwnitbbbebi 已失效（QQ返回 535 Login fail）
+- 根因：QQ邮箱SMTP授权码 <revoked auth code> 已失效（QQ返回 535 Login fail）
 - 已连续失败 6天（8月23日~28日）
 
 🔧 修复步骤（一次性，3分钟搞定）
@@ -328,7 +328,7 @@ The Case C follow-up (extract `_email_helpers.py`) remains overdue by 14 cron cy
 > conclusion was reached — it is useful only as a worked example of why
 > `smtplib`-based probing is unreliable.
 
-The `toutiao-article-daily.py` cron failed for the **17th consecutive night** (since 2026-08-25). Same auth code (`iylylmwnitbbbebi`), same `Connection unexpectedly closed` symptom. Applied the Case H terse dispatch — but during the diagnostic, ran the manual AUTH probe with a deliberately wrong password to compare signatures. Got a genuinely new finding.
+The `toutiao-article-daily.py` cron failed for the **17th consecutive night** (since 2026-08-25). Same auth code (`<revoked auth code>`), same `Connection unexpectedly closed` symptom. Applied the Case H terse dispatch — but during the diagnostic, ran the manual AUTH probe with a deliberately wrong password to compare signatures. Got a genuinely new finding.
 
 ### What the probe showed (this session, 2026-09-11) — since shown to be a client-side artifact
 
@@ -338,7 +338,7 @@ server = smtplib.SMTP('smtp.qq.com', 587, timeout=15)
 server.ehlo()                  # 250 OK
 server.starttls()
 server.ehlo()                  # 250 OK
-server.login("569545015@qq.com", "iylylmwnitbbbebi")
+server.login("569545015@qq.com", "<REVOKED_AUTH_CODE>")
 # → SMTPServerDisconnected: Connection unexpectedly closed   (~0.6s)
 # → no reply line, no 535
 
@@ -387,7 +387,7 @@ def probe(password):
         print(f"password={password!r} -> DISCONNECTED: {e}")
     s.close()
 
-probe("iylylmwnitbbbebi")            # correct
+probe("<REVOKED_AUTH_CODE>")            # correct
 probe("WRONG_PASSWORD_HERE")         # wrong
 ```
 
