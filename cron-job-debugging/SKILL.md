@@ -720,17 +720,23 @@ ls -1 *.html 2>/dev/null | while read f; do
   fi
 done
 # Also delete the corresponding PENDING symlinks and old STANDBY entries.
-# ⚠️ Date-offset traps (verified 2026-10-27, this recipe previously deleted
-# ALL STANDBY files including today's, and left 10 broken PENDING symlinks):
+# ⚠️ Date-offset traps (verified 2026-10-27, CORRECTED 2026-10-29):
 #   - "PENDING_20261027.html" → date starts at index 8  → "${f:8:8}"  ✅
-#   - "STANDBY_20261027.txt" → date starts at index 9   → "${f:9:8}"  ✅
-#     (PENDING is 7 chars + "_" = 8; STANDBY is 8 chars + "_" = 9)
+#   - "STANDBY_20261027.txt" → date starts at index 8  → "${f:8:8}"  ✅
+#   ⚠️ An earlier version of this recipe said STANDBY used index 9. That was
+#   WRONG: both "PENDING" and "STANDBY" are 7 characters, so both dates start
+#   at index 8. Using index 9 on a STANDBY file yields "0261029." — which is
+#   lexicographically < "20261015", so **the recipe deleted every STANDBY file,
+#   including today's** (observed 2026-10-29: STANDBY count went 3 → 0).
+#   ⚠️ ALWAYS verify the slice before deleting:
+#       echo "${f:8:8}"   # must print a bare 8-digit date like 20261029
+#   If it prints anything else (dots, a shifted digit), the offset is wrong.
 ls -1 PENDING_*.html 2>/dev/null | while read f; do
   datestr="${f:8:8}"
   if [[ "$datestr" < "$KEEP_FROM" ]]; then rm -f "$f"; fi
 done
 ls -1 STANDBY_*.txt 2>/dev/null | while read f; do
-  datestr="${f:9:8}"
+  datestr="${f:8:8}"     # ⚠️ index 8, NOT 9 — see the offset-trap note below
   if [[ "$datestr" < "$KEEP_FROM" ]]; then rm -f "$f"; fi
 done
 
@@ -751,6 +757,28 @@ ls -la PENDING_$(date +%Y%m%d).html STANDBY_$(date +%Y%m%d).txt
 ```
 
 **Don't prune without preserving the README's history.** The README's "持续中 — 第N天" entries are the cross-session memory; the user may want to read them when they finally fix the auth code to see how long the outage ran. The recipe above leaves `README.md` untouched.
+
+**⚠️ Add a post-prune restore check for STANDBY files (2026-10-29).** The STANDBY
+files are regenerated only when the script runs, so a bad prune deletes them
+permanently — there is no backup to restore from. After pruning, if the STANDBY
+count dropped to 0 (or below what you expected), **reconstruct the missing files
+by hand** from the script's own `main()` template rather than skipping ahead:
+
+```python
+# Reconstruct a STANDBY file for a date whose HTML backup still exists
+standby = (
+    f"📰 头条号今日文章（QQ SMTP 535 限频/授权码失效，已自动备份）\n"
+    f"选题：{title}\n"
+    f"方向：{direction}\n"
+    f"时长：长文 + 2 条微头条\n"
+    f"HTML：/home/ubuntu/.hermes/cron/outbox/toutiao/PENDING_{date}.html\n"
+    f"原因：{reason}\n"
+)
+```
+The `title`/`direction`/`reason` are all recoverable: title and direction are in
+the backup HTML's banner, and the reason string is in the matching
+`STANDBY_*.txt` reference inside the scheduler output log
+(`~/.hermes/cron/output/<job_id>/*.md`) or in `~/.hermes/cron/logs/*.log`.
 
 **Why 14 days:** enough to give the user a meaningful buffer of "I haven't read these yet" articles when they finally fix the credential and want to sweep history with `scripts/resend_outbox_html.py --all`, but small enough to keep `ls` instant. Tune by storage size: at ~27 KB per HTML, 14 days = ~380 KB per platform, very manageable.
 
@@ -825,9 +853,9 @@ newest backup is dated today, do not re-run.
 
 **Outbox pruning when accumulation gets unwieldy.** Keep the last ~14 days of
 HTML backups; preserve README + PENDING + STANDBY. Beware the date-offset trap:
-`PENDING_YYYYMMDD.html` starts its date at index **8** (`${f:8:8}`) but
-`STANDBY_YYYYMMDD.txt` at index **9** (`${f:9:8}`). Getting this wrong deletes
-today's STANDBY file. Always sweep broken symlinks afterwards with
+`PENDING_YYYYMMDD.html` starts its date at index **8** (`${f:8:8}`) and so does
+`STANDBY_YYYYMMDD.txt` (`${f:8:8}`) — both prefixes are 7 characters. Getting
+this wrong deletes today's STANDBY file (observed 2026-10-29). Always sweep broken symlinks afterwards with
 `find . -maxdepth 1 -name "PENDING_*.html" -xtype l -delete`, and verify every
 PENDING symlink still resolves. Prefer a bash one-liner over a bespoke Python
 script for this cleanup. Full recipe: `references/case-log-chronic-outage.md`.
