@@ -677,6 +677,54 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   `str.format()` silent-drop check) in
   `content-platforms/references/topic-pool-rotation-and-length-engineering.md`.
 
+- **⚠️ A checklist that is RENDERED into the product must be audited against the code it describes (2026-10-30).**
+  `toutiao-article-daily.py` renders its own `CHECKLIST_ITEMS` list into a visible
+  "发布前检查清单" block at the bottom of every article. When v1.1.0 changed the sender
+  from `权权的HERMES（头条）` to `围炉家常话（头条）`, it updated `send_email()` but **not**
+  the checklist string — so every article had been telling the user to verify a sender
+  name the pipeline doesn't use. The checklist was not decoration this time; it was
+  *shipping*, so the drift reached the reader.
+  **Rule: any value that appears in more than one place (a config string, a brand
+  name, a from-header, a checklist item) must be asserted against its source of truth,
+  not eyeballed.** Cheap check for this deployment:
+  ```bash
+  # every identity string in the script, side by side
+  grep -rn "围炉家常话\|权权的HERMES" ~/.hermes/cron/scripts/*.py
+  # the checklist item that ships to the reader
+  grep -n "发件人是否为" ~/.hermes/cron/scripts/toutiao-article-daily.py
+  ```
+  Also note the **version banner drifted the same way** (`v1.1.0` in the file header and
+  `main()`'s stdout while the code was already at v1.2.x) — version strings are the most
+  commonly left-stale field in a long-lived script. Bump them in the same edit as the
+  feature they describe.
+
+- **⚠️ Measure the ASSEMBLED product, not an intermediate return value (2026-10-30).**
+  A generator can look broken in an audit when the audit simply measures the wrong
+  object. Two concrete traps hit on `toutiao-article-daily.py`:
+  1. `generate_article()` returns **only the long-form** HTML. The micro-article HTML
+     is appended later, inside `send_email()`:
+     `full_html = html_content + '\n'.join(m['html'] for m in micro_articles)`.
+     Auditing `generate_article()`'s return value → "micro-articles are missing!" —
+     a false alarm. **Replicate the real assembly before measuring.**
+  2. A micro-post's word-count target (150-250) applies to the **source `content`
+     field**, not to the rendered block (content + dialogue highlight + image prompt +
+     tags). Measured here: `content` = 250 chars (compliant) but the rendered block
+     read 322 chars — looked like a violation, but the wrong object was measured.
+  **Rule: before asserting a threshold, confirm the threshold's unit and its scope
+  against the code that actually ships.** Use the ready-made auditor rather than
+  hand-rolled regexes (a non-greedy `<div class="prompt-text">.*?</div>` truncates at
+  the first inner `</div>`, letting English prompt text leak into the word count):
+  ```bash
+  python3 ~/.hermes/skills/productivity/content-platforms/scripts/audit_rendered_article.py \
+      ~/.hermes/cron/outbox/toutiao/<today>.html \
+      --pool ~/.hermes/cron/scripts/toutiao-article-daily.py
+  ```
+  It reports body Chinese-char count, section presence (故事A·对话/结局、故事B·结局、
+  观点、行动、金句1-3), image-prompt block count vs `no text` occurrences, hashtag
+  count, and micro `content` word-count range — exit 0 = clean, 1 = problems found.
+  Full recipe set: `content-platforms/references/topic-pool-rotation-and-length-engineering.md`
+  (缺陷四 + the two measurement traps).
+
 - **⚠️ The "don't re-run the script" rule (Case R) and the "fix the content" mandate are in tension — resolve it by fixing the code, not by re-running (2026-10-28).**
   Case R says: if the outbox already has today's backup, do NOT run the script again
   (each extra run generates a *different* random topic and creates a second backup).
@@ -880,6 +928,8 @@ Related case-detail references:
 - `references/outage-readme-template.md` — README entry template
 - `references/qq-smtp-rate-limit-pitfall.md` — rate-limit variant
 - `references/script-not-found-case-study.md` — path-resolution case study
+- `productivity/content-platforms/scripts/audit_rendered_article.py` — **产物审计脚本**：测已渲染 HTML 的正文中文数、结构完整性、配图数与 `no text`、标签数、微头条 `content` 字数区间（`--pool` 核对选题池，`--json` 机器可读）。改生成器后跑它，别手写正则数字数
+- `productivity/content-platforms/references/topic-pool-rotation-and-length-engineering.md` — 内容质量四缺陷（池子/LRU/`str.format()`/清单漂移）+ **两个测量陷阱**（要测装配后的产物；微头条字数测 `content` 而非渲染块）
 
 ## Recovery scripts (for after the credential is fixed)
 

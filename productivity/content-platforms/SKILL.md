@@ -48,7 +48,8 @@ cronjob (定时)
 - `references/wechat-article-daily.md` — 公众号文章生成器完整数据结构说明（含TOPICS_POOL字段、模板变量、检查清单实现细节）
 - `references/wechat-md-format.md` — 公众号文章 MD 格式规范（**重要**：公众号不再发邮件，改为生成 MD 文件推送飞书，格式要求见此文件）
 - `references/toutiao-article-daily.md` — 头条号文章生成器参考实现
-- **`references/topic-pool-rotation-and-length-engineering.md`** — **选题池轮换与字数工程（通用）**：池子大小=轮换周期、去重窗口必须跟随池子大小、窗口按「条数」算对微头条是错的、LRU 算法、`str.format()` 静默丢弃 kwargs、检查清单数字必须被自动断言。适用于任何「有限选题池+每日产出」的 cron 内容脚本
+- **`references/topic-pool-rotation-and-length-engineering.md`** — **选题池轮换与字数工程（通用）**：池子大小=轮换周期、去重窗口必须跟随池子大小、窗口按「条数」算对微头条是错的、LRU 算法、`str.format()` 静默丢弃 kwargs、检查清单数字必须被自动断言、**检查清单/版本号字符串漂移（缺陷四）**、**审计时必须测「装配后的最终产物」而不是中间返回值**、**微头条字数要测 `content` 字段而不是渲染块**。适用于任何「有限选题池+每日产出」的 cron 内容脚本
+- **`scripts/audit_rendered_article.py`** — **产物审计脚本（通用）**：一条命令量出已渲染 HTML 的正文中文字数、结构完整性（故事A·对话/结局、观点、行动、金句）、配图提示词数与 `no text` 约束、话题标签数、微头条 `content` 字数是否落在 [150,250]。`--pool <content_script.py>` 顺便核对选题池；`--json` 机器可读。改完生成器后必跑，别手写正则数字数
 - `references/xhs-travel-guide-sample.md` — 小红书旅游攻略参考实现
 - `references/xhs-travel-script-identifier.md` — **两个旅游脚本辨析**：`xhs-travel-daily.py`（主，23:00）vs `xiaohongshu-travel-daily.py`（旧，已停用）+ shell转义踩坑
 - `references/dedup-visited-destinations.md` — 小红书旅游脚本景点去重机制：_pick_unvisited()实现、追踪文件、循环覆盖逻辑
@@ -302,6 +303,8 @@ for item in items:
 - **轮换模拟绝不能读生产 history 文件**：用真实 `topic_history.json` 做模拟会污染生产数据并让结论失真（早期一次模拟因此得出「微头条只覆盖 4/10」的假结论）。必须用临时文件，且被测函数支持注入路径（`_pick_micro_index(used, history_path=None)`）。改完用 `diff` 确认生产文件未被污染。
 - **脚本文件名带连字符 ⇒ 无法 `import`**：`toutiao-article-daily.py` 只能 `importlib.util.spec_from_file_location(...)` 加载。连带后果：不要依赖 `sys.path[0]`（cron 下是脚本目录、测试下是 cwd），扩库模块要显式插入 `__file__` 所在目录；扩库失败要有 `except ImportError` 兜底 + 告警，不能让整条管线挂掉。
 - **脚本自带的检查清单数字必须被自动断言**：`CHECKLIST_ITEMS` 里写着「文章字数够不够长？（1500字以上）」，但实测每篇只有 813-1159 字，**没有一篇达标** —— 清单是愿望，从来没人量过。写进清单的每个数字都该配一条自动断言。
+- **检查清单会漂移，而且它**是被渲染进产物**发给读者的（2026-10-30）**：`CHECKLIST_ITEMS` 不是注释，它被拼成文章底部的「发布前检查清单」区块。v1.1.0 改发件人时只改了 `send_email()`、没改清单行，导致**每篇文章都在对读者说「请确认发件人是权权的HERMES（头条）」**，而实际发件人是「围炉家常话（头条）」。同一次审计发现版本横幅也停在 `v1.1.0`（代码早已 v1.2.x）。**规则：任何在多处出现的值（品牌名/发件人/版本号/路径）都要对着唯一真源 grep 断言，别靠眼睛扫；被渲染进产物的字符串漂移了＝出错了信息给用户。** 一行检查：`grep -rn "围炉家常话\|权权的HERMES" ~/.hermes/cron/scripts/*.py`
+- **审计产物要测「装配后的最终产物」，不是中间返回值**：`generate_article()` 只返回长文 HTML，微头条 HTML 是在 `send_email()` 里 `html + '\n'.join(m['html'] for m in micros)` 才拼上的。只测 `generate_article()` 的返回值 → 会误判「微头条缺失」。同理，**微头条字数要测 `MICRO_TOPICS_POOL[*]['content']` 字段**（受 150-250 约束的那个），不是渲染块 —— 渲染块含对话高亮+配图提示词，实测 250 字 content 渲染出来读到 322 字，那是量错了对象。**用 `scripts/audit_rendered_article.py` 别手写正则。**
 - **f-string反斜杠**：Python 3.12禁止在f-string内使用反斜杠，先拼接中间变量再塞入f-string
 - **邮件发送失败 / SMTP 授权码失效**：诊断流程属于 `cron-job-debugging` 技能的职责，不要在这里重复推导。内容侧只需要知道三件事：
   1. **内容永远先落盘再发送**：`send_email()` 失败时脚本会把渲染好的 HTML 备份到 `~/.hermes/cron/outbox/<platform>/`——这是用户唯一的内容副本，**不要清空 outbox/**。

@@ -222,6 +222,76 @@ print("会被静默丢弃的:", provided - long_ph)          # ← 这个为空�
 
 ---
 
+## 缺陷四：检查清单自己会漂移，而且它**被渲染进产物**发给读者
+
+### 症状
+2026-10-30 审计发现：脚本 `CHECKLIST_ITEMS` 里写的是
+
+```
+"发件人是否为「权权的HERMES（头条）」？"
+```
+
+而 `send_email()` 里真正的 `msg['From']` 一直是
+
+```python
+msg['From'] = formataddr((str(Header('围炉家常话（头条）', 'utf-8')), SMTP_USER))
+```
+
+v1.1.0 改发件人时**只改了 `send_email()`，没改清单那一行**。
+更要命的是 `CHECKLIST_ITEMS` 不是注释 —— 它被
+`checklist_html = '\n'.join(...)` 渲染成文章底部的「发布前检查清单」区块，
+**每篇文章都在对读者说「请确认发件人是权权的HERMES（头条）」**，而它明明是围炉家常话。
+
+同一次审计还发现版本横幅同样漂移：文件头与 `main()` 打印的仍是 `v1.1.0`，
+而代码功能早已到 v1.2.x（扩库 10 条 + LRU + 字数扩写）。
+
+### 根因
+**同一个身份/版本字符串在脚本里出现了 N 处，改一处忘了改另一处。**
+前面三个缺陷都是「机制错了」，这个是**「机制对、但引用漂移了」**——
+它不会让任何断言失败，只是让产品开始说假话。
+
+### 修复
+```python
+# CHECKLIST_ITEMS 里
+"发件人是否为「围炉家常话（头条）」？",     # ← 与 msg['From'] 保持一致
+```
+同时把文件头与 `main()` 横幅的版本号更新为 `v1.2.2`，
+横幅主体名也从「权权的HERMES」改成「围炉家常话」。
+
+### 规则
+> **任何在多处出现的值（品牌名、发件人、版本号、路径、账号）都要对着唯一真源做断言，不要靠眼睛扫。**
+> 尤其：**被渲染进产物的字符串，本身就是产物的一部分**，它漂移了 = 出货了错误信息给用户。
+
+一行检查（把同一身份的所有出现位置并排打出来，肉眼对）：
+```bash
+grep -rn "围炉家常话\|权权的HERMES" ~/.hermes/cron/scripts/*.py
+grep -n "发件人是否为" ~/.hermes/cron/scripts/toutiao-article-daily.py
+```
+
+**版本号是长期脚本里最容易长期发臭的字段** —— 和它描述的功能在同一次编辑里 bump。
+
+### 附：测量产物时最容易踩的两个坑
+
+1. **要测「最终装配后的产物」，不是中间返回值。**
+   `generate_article()` 只返回长文 HTML；微头条 HTML 是在 `send_email()` 里
+   `html + '\n'.join(m['html'] for m in micros)` 才拼上去的。
+   只测 `generate_article()` 的返回值 → 会误判「微头条缺失」。
+
+2. **微头条的字数要测选题池的 `content` 字段，不是渲染块。**
+   渲染块 = content + 对话高亮 + 配图提示词 + 标签。
+   实测：content 250 字（合规）→ 渲染块读到 322 字，看起来像违反 250 上限 —— **那是量错了对象**。
+   受 150-250 约束的是 `MICRO_TOPICS_POOL[*]['content']`。
+
+现成脚本：`scripts/audit_rendered_article.py`（本技能内），一条命令测完
+字数、结构完整性、配图数、标签数、微头条区间：
+```bash
+python3 scripts/audit_rendered_article.py \
+    ~/.hermes/cron/outbox/toutiao/20261030_2030_兄弟姐妹.html \
+    --pool ~/.hermes/cron/scripts/toutiao-article-daily.py
+```
+
+---
+
 ## 端到端回归验证模板（改完必跑）
 
 ```python
@@ -244,10 +314,26 @@ assert not (set(re.findall(r'\{([a-z_0-9]+)\}', T.HTML_TEMPLATE)) - provided)
 #    长文正文 ≥1100, 全篇 ≥1500; 微头条 content ∈ [150,250]
 
 # 6) 渲染回归：每条长文都能渲染出完整 HTML，三段齐全
+#
+# 6b) 装配口径：微头条 HTML 是在 send_email() 里才拼上长文的，
+#     测产物必须测装配后的全文，不能只测 generate_article() 的返回值
+#     full = html + '\n'.join(m['html'] for m in micros)
+
+# 6c) 身份字符串一致性（缺陷四）：
+#     清单里渲染出去的字符串必须 == 代码里实际用的值
+assert '发件人是否为「围炉家常话（头条）」？' in full
+assert '权权的HERMES（头条）' not in full        # 旧串不得残留
 
 # 7) 生产数据未被污染
 diff <(cat /tmp/bk_topic.json) ~/.hermes/cron/outbox/toutiao/topic_history.json
 ```
+
+**产物审计用现成脚本**（不要手写正则）：
+```bash
+python3 scripts/audit_rendered_article.py <article.html> --pool <content_script.py>
+```
+它会正确处理「剔除提示词区块后数字数」的嵌套 div 配对，
+避免非贪婪正则截断导致正文里混进英文提示词、字数虚高。
 
 ---
 
@@ -262,3 +348,6 @@ diff <(cat /tmp/bk_topic.json) ~/.hermes/cron/outbox/toutiao/topic_history.json
 | 扩库加载失败 | 依赖 `sys.path[0]` | 显式插入 `__file__` 目录 |
 | 内容少了一截但不报错 | `str.format()` 丢弃多余 kwargs | 比对占位符 ↔ kwargs |
 | 检查清单的数字从不达标 | 清单是愿望，没人量过 | 加自动断言 + 补写细节段 |
+| 清单/版本号与代码对不上 | 同一字符串散落多处，改一处忘一处 | 对着真源 grep 断言；渲染进产物的字符串更要改 |
+| 审计脚本报「微头条缺失」 | 测了中间返回值，没测装配后的全文 | 复刻 `send_email()` 的拼接口径 |
+| 微头条字数看着超限 | 测了渲染块（含提示词），不是 `content` 字段 | 测 `MICRO_TOPICS_POOL[*]['content']` |
