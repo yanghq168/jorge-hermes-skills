@@ -698,6 +698,16 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   commonly left-stale field in a long-lived script. Bump them in the same edit as the
   feature they describe.
 
+- **⚠️ Two pools that rotate in lockstep will eventually pair a story with its own twin (2026-10-31).** Cross-day LRU dedup guarantees a topic doesn't repeat *itself* — it says nothing about a long-form topic and a micro topic colliding *with each other*. On `toutiao-article-daily.py` six of the ten micro entries retell the **same story** as a long-form entry (same protagonist, same beats: 老周头/随份子/烧本子, 大伯/供学费/断联, 住院/分家产, 房产证/过户, 立遗嘱/子女沉默, 养老院/算账). Both pools are 10 items and LRU advances them **in lockstep**, so a micro topic and its long-form twin land on the same night ~1/10 of the time — the reader reads the same story twice in one email. **Measured: 28/40 random rotation phases hit at least one collision; 264/2400 nights (11%) duplicated.** The tell is in the *pool*, not the output: two direction names that sound different (`人情往来` vs `随礼人情`) can be the same story. **Fix:** declare an explicit shadow map and exclude the twins when picking the companion pool:
+  ```python
+  SHADOW_MAP = {'人情往来': '随礼人情', '亲戚帮衬': '亲戚恩怨', ...}  # micro -> long
+  def _pick_micro_index(used, history_path=None, exclude_directions=()):
+      used_dirs = {...} | {str(d) for d in (exclude_directions or ())}
+      ...
+  micro_articles = generate_micro_articles(long_direction=topic['direction'])
+  ```
+  **Verify with the multi-phase harness, not a single run** — a single seeded run missed it entirely (0/20 collisions) while 28/40 phases hit it. The metric that matters is *collision nights / total nights across many phases*, not "did tonight collide". After the fix: **264/2400 → 0/2400**, with direction coverage still 10/10 on both pools. Also add a checklist line (it renders to the reader) so the rule is visible in the product.
+
 - **⚠️ Measure the ASSEMBLED product, not an intermediate return value (2026-10-30).**
   A generator can look broken in an audit when the audit simply measures the wrong
   object. Two concrete traps hit on `toutiao-article-daily.py`:
