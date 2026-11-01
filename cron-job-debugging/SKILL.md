@@ -677,7 +677,16 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   `str.format()` silent-drop check) in
   `content-platforms/references/topic-pool-rotation-and-length-engineering.md`.
 
-- **⚠️ A checklist that is RENDERED into the product must be audited against the code it describes (2026-10-30).**
+- **⚠️ Even a GREEN content audit can hide a broken product: check the arithmetic and the cast (2026-11-01).** The diagnostic order above says "measure the product first, then diagnose delivery" — but `audit_rendered_article.py` measures **length and structure only** (word count, sections present, image prompts, hashtags, micro-post word range). It **cannot** see (a) numbers that don't add up, or (b) characters that don't exist. Measured on a shipped article: monthly fee 8000, children contributed 5000+5000+3000 = **13000**, and the text claimed the children "covered a bit over half"; a character declared "two daughters" then referred to "his son" twice; a micro-post split 220,000 as "73,000 each ×3 + 51,000" = **270,000**. Every green light stayed green: script exit 0, HTML rendered, Feishu attachment delivered, audit exit 0 "全部检查通过". The only thing that caught it was **reading the rendered prose and doing the arithmetic by hand**.
+  **Root cause: the article is assembled from multiple sources.** The pool entry lives in `toutiao_topics_extra.py`; the **expansion paragraphs live in a separate file `toutiao_story_extensions.py`** and are concatenated onto `story_a`/`story_b` at render time. Base text says "two daughters each give 1,000/month"; the expansion says "he doesn't ask his son for money". Neither is wrong alone — **together they are wrong**. No single-file check can find this.
+  **Rules:**
+  1. **When auditing a content cron, read the rendered prose end-to-end and add up the numbers.** Length checks passing means nothing if the subject matter is arithmetic.
+  2. **Run the self-consistency linter** (`content-platforms/scripts/lint_content_consistency.py`, `--pool`/`--extensions`/`--json`): `SUM_EXCEEDS_FEE`, `SPLIT_VS_TOTAL`, `FRACTION_MISMATCH`, `PERIOD_MONTH_YEAR`, `CONTRIB_VS_FEE`, `PHANTOM_SON`, `FREQ_CONFLICT`. Exit 0 = clean.
+  3. **Split story A and story B into separate units** for character checks — they are *different people*, and merging them makes legitimate references look like contradictions.
+  4. **Verify the parser against known-good examples.** Chinese money shorthand (`7万3` = 73000, `一万五` = 15000) must be expanded; a parser that misses it reports unit-confused nonsense that looks like a finding.
+  Full write-up + the 6 recorded defects: `content-platforms/references/content-self-consistency-checking.md`.
+
+- **⚠️ A dead mail channel is not a dead content channel (2026-10-25, failure #62).**
   `toutiao-article-daily.py` renders its own `CHECKLIST_ITEMS` list into a visible
   "发布前检查清单" block at the bottom of every article. When v1.1.0 changed the sender
   from `权权的HERMES（头条）` to `围炉家常话（头条）`, it updated `send_email()` but **not**
