@@ -89,25 +89,76 @@ def _cn(s):
     return float(total + section + number)
 
 
+_UNITS = {'十': 10, '百': 100, '千': 1000, '万': 10000}
+# 口语尾数省略单位时，尾数代表**下一级**单位：
+# 「7万3」= 7万 + 3千 = 73000；「五千八」= 5千 + 8百 = 5800。
+_NEXT_UNIT = {'万': 1000, '千': 100, '百': 10, '十': 1}
+
+_CN_DIGITS = {'零': 0, '一': 1, '二': 2, '两': 2, '三': 3, '四': 4, '五': 5,
+              '六': 6, '七': 7, '八': 8, '九': 9}
+
+
+def _parse_cn_amount(s):
+    """纯中文数字 → 数值，处理「省尾数单位」的省略写法。
+
+    「一万五」= 15000、「五千八」= 5800、「十八万七」= 187000、
+    「三百二十」= 320、「二十三」= 23。
+
+    规则：读到单位字就结算该级；结尾若还剩一个**没有单位**的裸数字，
+    它代表**上一个单位的下一级**（省略写法）。
+    「三百二十」里的「二十」自带单位，不适用省略规则 —— 这正是
+    正则写法会算错的地方（三百二十 被误算成 500）。
+    """
+    total = 0.0
+    section = 0.0
+    number = None
+    last_unit = None
+    for ch in s:
+        if ch in _CN_DIGITS:
+            number = _CN_DIGITS[ch]
+        elif ch in _UNITS:
+            if ch == '万':
+                total += (section + (number or 0)) * 10000
+                section = 0.0
+            else:
+                section += (number if number is not None else 1) * _UNITS[ch]
+            number = None
+            last_unit = ch
+        else:
+            return None
+    if number is not None and number != 0:
+        # 结尾的裸数字 = 省略了单位的下一级
+        mult = _NEXT_UNIT.get(last_unit, 1) if last_unit else 1
+        total += number * mult
+    return total + section
+
+
 def _num(s):
-    """把 '8000' / '八千' / '一千五' / '7万3' 解析成数字。
+    """把 '8000' / '八千' / '一千五' / '7万3' 解析成数字（单位：元）。
 
     「7万3」是中文口语里 73000 的省略写法（万位 + 尾数省略单位），
-    「一万五」= 15000、「五千八」= 5800 同理。
+    「一万五」= 15000、「五千八」= 5800、「十八万七」= 187000 同理。
+
+    ⚠️ 尾数不是简单相加，而是要带上**下一级单位**：
+       旧实现把 '7万3' 算成 70003、把 '一万五' 算成 10005 —— 这会让
+       「已经写对的文案」被误报成缺陷，害得修复方把对的改回错的。
+       见 _self_test()：写完解析器必须用已知正确的算例验证它本身。
     """
     s = str(s).strip()
     if re.fullmatch(r'\d+(\.\d+)?', s):
         return float(s)
-    m = re.fullmatch(r'(\d+)([十百千万])(\d+(?:\.\d+)?)', s)
+    # 阿拉伯数字前缀 + 单位 + 阿拉伯尾数：'7万3' / '5千8'
+    m = re.fullmatch(r'(\d+(?:\.\d+)?)([十百千万])(\d+(?:\.\d+)?)', s)
     if m:
-        mult = {'十': 10, '百': 100, '千': 1000, '万': 10000}[m.group(2)]
-        return float(m.group(1)) * mult + float(m.group(3))
-    m = re.fullmatch(r'([零一二两三四五六七八九]+)([十百千万])([零一二两三四五六七八九])', s)
+        base = float(m.group(1)) * _UNITS[m.group(2)]
+        return base + float(m.group(3)) * _NEXT_UNIT[m.group(2)]
+    # 阿拉伯数字前缀 + 单位（无尾数）：'8万' / '18万'
+    m = re.fullmatch(r'(\d+(?:\.\d+)?)([十百千万])', s)
     if m:
-        base = _cn(m.group(1) + m.group(2))
-        tail = _cn(m.group(3))
-        if base is not None and tail is not None:
-            return base + tail
+        return float(m.group(1)) * _UNITS[m.group(2)]
+    # 纯中文数字（含省略尾数写法）
+    if s and all(ch in _CN_DIGITS or ch in _UNITS for ch in s):
+        return _parse_cn_amount(s)
     return _cn(s)
 
 
@@ -201,20 +252,56 @@ def check_period(text):
     return issues
 
 
+def _wan_amount(prefix: str, tail: str):
+    """「万」为单位时解析金额：'5'+'6' → 5.6万；'8'+'7' → 8.7万。
+
+    中文口语里「5万6」= 5.6 万、「7万3」= 7.3 万，尾数省略单位。
+    在**万**为单位时，尾数位是 0.1 万（= 1000 元）：
+
+        一人 5万6 → 5.6 万；一人 7万3 → 7.3 万
+
+    ⚠️ 与 _num() 的口径不同：_num('5万6') = 56000（元），
+       _wan_amount('5','6') = 5.6（万）。两者差 1e4，别混用。
+    """
+    base = None
+    if re.fullmatch(r'\d+(\.\d+)?', prefix or ''):
+        base = float(prefix)
+    else:
+        base = _cn(prefix)
+    if base is None:
+        return None
+    tail_v = 0.0
+    if tail:
+        if re.fullmatch(r'\d+(\.\d+)?', tail):
+            tail_v = float(tail)
+        else:
+            tail_v = _cn(tail)
+        if tail_v is None:
+            return None
+        tail_v = tail_v * 0.1          # 万为单位的尾数 = 0.1 万
+    return base + tail_v
+
+
 def check_split_vs_sum(text):
     """'存款22万，一人7万3，剩下的5万1' —— 拆分项之和 vs 总额。"""
     issues = []
-    for mm in re.finditer(r'存款\s*([\d零一二两三四五六七八九十百千万]+)\s*万', text):
-        total = _num(mm.group(1))          # 单位：万
+    # 总额也可能是 '8万7' 这种带尾数的写法，要一并还原
+    for mm in re.finditer(r'存款\s*([\d零一二两三四五六七八九十百千万]+)\s*万'
+                          r'\s*([\d零一二两三四五六七八九十百千万]*)', text):
+        total = _wan_amount(mm.group(1), mm.group(2))   # 单位：万
         if total is None:
             continue
-        window = text[mm.start(): mm.start() + 220]
-        per = re.search(r'一人\s*([\d零一二两三四五六七八九十百千万]+)\s*万', window)
-        rest = re.search(r'剩下(?:的)?\s*([\d零一二两三四五六七八九十百千万]+)\s*万', window)
+        window = text[mm.start(): mm.start() + 260]
+        # 每人分摊：'一人5万6' / '每人2万9' / '三人各2万9'（尾数省略单位）
+        per_m = re.search(r'(?:一人|每人|各)\s*([\d零一二两三四五六七八九十百千万]+)\s*万'
+                          r'\s*([\d零一二两三四五六七八九十百千万]*)', window)
+        rest_m = re.search(r'剩下(?:的)?\s*([\d零一二两三四五六七八九十百千万]+)\s*万'
+                           r'\s*([\d零一二两三四五六七八九十百千万]*)', window)
         count = re.search(r'([三四五六\d])\s*(?:个)?(?:孩子|子女|儿子|女儿|儿)', window)
-        if not per or not rest:
+        if not per_m or not rest_m:
             continue
-        p, r = _num(per.group(1)), _num(rest.group(1))
+        p = _wan_amount(per_m.group(1), per_m.group(2))
+        r = _wan_amount(rest_m.group(1), rest_m.group(2))
         n = 3
         if count:
             n = _cn(count.group(1)) or 3
@@ -223,7 +310,8 @@ def check_split_vs_sum(text):
         if abs(p * n + r - total) > 0.05:
             ctx = window[:180].replace('\n', ' ')
             issues.append(('SPLIT_VS_TOTAL',
-                           f'一人 {p} × {int(n)} + 剩下 {r} = {p*n+r} ≠ 总额 {total}（万）', ctx))
+                           f'一人 {p} × {int(n)} + 剩下 {r} = {round(p*n+r, 2)} ≠ 总额 {total}（万）',
+                           ctx))
     return issues
 
 
@@ -501,5 +589,53 @@ def main(argv=None):
     return 1
 
 
+def _self_test():
+    """解析器自检 —— 用已知正确的算例验证，而不是只看「有没有报错」。
+
+    规则（来自 2026-11-01 的实战教训）：写完检查器要用已知正确的算例
+    验证解析器本身。一个把「5万2」当「5」的解析器，会把**已经修好的**
+    文本报成缺陷，害得修复方把对的改回错的。
+
+    期望全绿；任何一条失败 → 退出码 2（工具坏了，不是内容坏了）。
+    """
+    cases = [
+        # (输入, 期望值)  —— 中文金额口语缩写
+        ('8000', 8000.0), ('7万3', 73000.0), ('5万2', 52000.0),
+        ('一万五', 15000.0), ('五千八', 5800.0), ('十八万七', 187000.0),
+        ('两千九', 2900.0), ('一万', 10000.0), ('三十', 30.0),
+        ('三百二十', 320.0),
+    ]
+    failed = []
+    for raw, want in cases:
+        got = _num(raw)
+        if got is None or abs(got - want) > 1e-6:
+            failed.append(f'_num({raw!r}) = {got!r}，期望 {want!r}')
+
+    wan_cases = [('5', '6', 5.6), ('7', '3', 7.3), ('10', '', 10.0),
+                 ('十', '二', 10.2), ('8', '7', 8.7)]
+    for pre, tail, want in wan_cases:
+        got = _wan_amount(pre, tail)
+        if got is None or abs(got - want) > 1e-6:
+            failed.append(f'_wan_amount({pre!r},{tail!r}) = {got!r}，期望 {want!r}')
+
+    # 已知正确的拆分：5.6 × 3 + 5.2 = 22 ✔；已知错误的：7.3 × 3 + 5.1 = 27.0 ✘
+    ok = check_split_vs_sum('存款22万，按三个孩子平分，一人5万6，剩下的5万2留给他和老伴看病。')
+    if ok:
+        failed.append('正确的拆分（5.6×3+5.2=22）被误报为缺陷')
+    bad = check_split_vs_sum('存款22万，按三个孩子平分，一人7万3，剩下的5万1留给他和老伴看病。')
+    if not bad:
+        failed.append('错误的拆分（7.3×3+5.1=27≠22）未被发现')
+
+    if failed:
+        print('❌ 解析器自检失败 —— 工具本身有问题，不是内容有问题：', file=sys.stderr)
+        for f in failed:
+            print('   - ' + f, file=sys.stderr)
+        return False
+    print('✅ 解析器自检通过（金额口语缩写 + 拆分算例）')
+    return True
+
+
 if __name__ == '__main__':
+    if not _self_test():
+        raise SystemExit(2)
     raise SystemExit(main())

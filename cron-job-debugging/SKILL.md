@@ -684,6 +684,10 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   2. **Run the self-consistency linter** (`content-platforms/scripts/lint_content_consistency.py`, `--pool`/`--extensions`/`--json`): `SUM_EXCEEDS_FEE`, `SPLIT_VS_TOTAL`, `FRACTION_MISMATCH`, `PERIOD_MONTH_YEAR`, `CONTRIB_VS_FEE`, `PHANTOM_SON`, `FREQ_CONFLICT`. Exit 0 = clean.
   3. **Split story A and story B into separate units** for character checks — they are *different people*, and merging them makes legitimate references look like contradictions.
   4. **Verify the parser against known-good examples.** Chinese money shorthand (`7万3` = 73000, `一万五` = 15000) must be expanded; a parser that misses it reports unit-confused nonsense that looks like a finding.
+     - **🔴 2026-11-02 实测：这类解析器的 bug 比内容缺陷更危险。** 修复那 6 处硬伤时发现 `lint_content_consistency.py` 把**每一种**口语缩写都算错了 —— `_num('7万3')` 返回 **70003**（应 73000）、`_num('一万五')` 返回 **10005**、`_num('十八万七')` 返回 **180007**、`_num('三百二十')` 返回 **500**。旧实现把「万位 + 省略尾数」当成了简单加法，而中文口语的尾数代表**下一级单位**（万→千、千→百、百→十）。
+     - **危害方向是双向的**：报出的「缺陷」里有一部分**只是解析器假象**。一个把「5万6」当「5」的解析器，会把**已经写对的文案**报成缺陷，害得修复方把对的改回错的 —— 你「修」了 6 处，其中几处原本就是对的。
+     - **规则：写完检查器必须用已知正确的算例验证解析器本身，不能只看「有没有报错」。** 本部署已在 `scripts/lint_content_consistency.py` 内置 `_self_test()`：15 个金额算例 + 正误两条拆分算例；自检失败 → **退出码 2**（工具坏了），与内容问题的 **退出码 1** 区分开。**改解析器后第一件事是看自检输出，而不是直接改文案。**
+     - **两套口径别混用**：`_num()` 返回**元**（`_num('5万6')` = 56000），`_wan_amount()` 返回**万**（`_wan_amount('5','6')` = 5.6），差 1e4 —— 两个函数的 docstring 都必须写清单位。
   Full write-up + the 6 recorded defects: `content-platforms/references/content-self-consistency-checking.md`.
 
 - **⚠️ A dead mail channel is not a dead content channel (2026-10-25, failure #62).**
