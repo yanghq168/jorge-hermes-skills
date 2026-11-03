@@ -469,6 +469,11 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   `references/outage-readme-template.md` for the full template and
   "what goes in vs out" rules.
 
+- **⚠️ 飞书 `message.get` 回查在本 SDK 版本有三处 API 差异（2026-11-03 实测）**：想确认备用通道「真的送达」而不是「脚本说送达」，必须回查消息。踩到的三个坑：**① `message.get` 是同步方法**（`await` 会报 `TypeError: object GetMessageResponse can't be used in 'await' expression`）；**② `success`/`code`/`msg` 是属性不是方法**（`resp.success()` 会报 `'int' object is not callable`）；**③ `data.items` 是 `Message` 对象不是 dict**（`it.get('msg_type')` 会报 `'Message' object has no attribute 'get'`）。`body.content` 里能看到 `{"file_key": "...", "file_name": "20261103_2030_房产纠纷.html"}` —— 用 `file_name` 核对「送达的是不是今夜那份」，比只看 `msg_type=file` 更可靠。
+  - **已固化为 `~/.hermes/cron/scripts/_verify_feishu_msg.py`**（venv python 执行，`python3 _verify_feishu_msg.py <message_id>`）—— 以后每晚可直接回查，不用每次重写这段踩坑代码。
+  - **注意 `create_time` 是毫秒时间戳**（如 `1793709006972`），不是秒。
+- **⚠️ 飞书备用通道的 `message_id` 只出现在脚本自己的日志/错误串里**：`send_email()` 的失败返回串是 `[QQ SMTP 限频 / 飞书附件投递成功 (message_id=om_...)] Connection unexpectedly closed`。要回查就把这串 ID 抠出来 —— 别重跑脚本去"重新拿一个 ID"，那会生成第二份产物（Case R）。
+
 - **⚠️ A dead mail channel is not a dead content channel (2026-10-25, failure #62).**
   When the email/SMTP channel has been down for weeks but the cron also has a healthy
   chat-platform `deliver` route, **push the content as a native file attachment on that
