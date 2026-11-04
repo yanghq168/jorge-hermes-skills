@@ -50,8 +50,9 @@ cronjob (定时)
 - `references/toutiao-article-daily.md` — 头条号文章生成器参考实现
 - **`references/topic-pool-rotation-and-length-engineering.md`** — **选题池轮换与字数工程（通用）**：池子大小=轮换周期、去重窗口必须跟随池子大小、窗口按「条数」算对微头条是错的、LRU 算法、`str.format()` 静默丢弃 kwargs、检查清单数字必须被自动断言、**检查清单/版本号字符串漂移（缺陷四）**、**审计时必须测「装配后的最终产物」而不是中间返回值**、**微头条字数要测 `content` 字段而不是渲染块**。适用于任何「有限选题池+每日产出」的 cron 内容脚本
 - **`references/content-self-consistency-checking.md`** — **内容自洽性（缺陷五）详解**：数字算不通、角色凭空多出 —— 审计工具测不出的第五类失败模式。含 6 处实录、根因（选题池 + 扩写段落多处拼接）、A/B 单元切分、中文金额口语缩写解析陷阱、与 Case R 的关系
+- **`references/orphan-extensions-and-hand-arithmetic-audit.md`** — **缺陷六「孤儿扩写」+ 人工算账审计**：扩写段落整个换成另一个故事（读者看到主角无预兆换人）、以及「审计全绿但手工通读抓到 9 处硬伤」。含 ORPHAN_EXTENSION 检测规则的三次踩坑（不能按频次判主角 / 不能拿整篇比 / 人名抽取太贪婪）、通读时要盯的 6 条链（年龄/金额/时长/同属性取值/币种口径/汇总）、**批次替换原子性陷阱**（一条失败会丢弃整批成功编辑）、给 linter 加规则的自检纪律
 - **`scripts/audit_rendered_article.py`** — **产物审计脚本（通用）**：一条命令量出已渲染 HTML 的正文中文字数、结构完整性（故事A·对话/结局、观点、行动、金句）、配图提示词数与 `no text` 约束、话题标签数、微头条 `content` 字数是否落在 [150,250]。`--pool <content_script.py>` 顺便核对选题池；`--json` 机器可读。改完生成器后必跑，别手写正则数字数
-- **`scripts/lint_content_consistency.py`** — **内容自洽性 lint（通用）**：查数字算不算得通、角色存不存在。`audit_rendered_article.py` 测不出算术错误与凭空多出的角色（这类缺陷全程绿灯，读者一按计算器就穿帮）。检查码：`SUM_EXCEEDS_FEE`/`SUM_VS_HALF_CLAIM`/`SPLIT_VS_TOTAL`/`FRACTION_MISMATCH`/`PERIOD_MONTH_YEAR`/`CONTRIB_VS_FEE`/`PHANTOM_SON`/`FREQ_CONFLICT`/`PERIODIC_VS_COUNT`。`--pool <script.py>`、`--extensions <ext.py>`、`--json`；退出码 0=干净。**改完生成器/扩写段落必跑**
+- **`scripts/lint_content_consistency.py`** — **内容自洽性 lint（通用）**：查数字算不算得通、角色存不存在。`audit_rendered_article.py` 测不出算术错误与凭空多出的角色（这类缺陷全程绿灯，读者一按计算器就穿帮）。检查码：`SUM_EXCEEDS_FEE`/`SUM_VS_HALF_CLAIM`/`SPLIT_VS_TOTAL`/`FRACTION_MISMATCH`/`PERIOD_MONTH_YEAR`/`CONTRIB_VS_FEE`/`PHANTOM_SON`/`FREQ_CONFLICT`/`PERIODIC_VS_COUNT`，以及 2026-11-04 新增的 `SPLIT_SUM_VS_INHERITED_TOTAL`（分家之和≠声明总额）/`PERIOD_TOTAL_VS_SEGMENTS`（合计月数≠各段之和）/`CARE_COST_VS_MONTHS`（护工月费×月数≠实付）/`ORPHAN_CHARACTER`（扩写段落出现主体故事没有的人物）。`--pool <script.py>`、`--extensions <ext.py>`、`--json`；退出码 0=干净 / 1=内容有问题 / **2=工具自检失败（工具坏了，不是内容坏了）**。**改完生成器/扩写段落必跑**；新增规则时**必须**在 `_self_test()` 里配「正例不报 + 反例必报」两条算例
 - `references/xhs-travel-guide-sample.md` — 小红书旅游攻略参考实现
 - `references/xhs-travel-script-identifier.md` — **两个旅游脚本辨析**：`xhs-travel-daily.py`（主，23:00）vs `xiaohongshu-travel-daily.py`（旧，已停用）+ shell转义踩坑
 - `references/dedup-visited-destinations.md` — 小红书旅游脚本景点去重机制：_pick_unvisited()实现、追踪文件、循环覆盖逻辑
@@ -63,7 +64,6 @@ cronjob (定时)
 - `references/viral-title-templates.md` — 爆款标题模板库（5种类型×3个模板，含热词类型→标题类型映射和代码移植建议）
 - `references/unified-content-daily.md` — 全平台内容生成脚本 `unified-content-daily.py` 参考实现（含 Image2 生图提示词逻辑、图文素材表结构、邮件HTML模板）
 
-## 🔧 用户内容偏好（已固化）
 ## 🔧 用户内容偏好（已固化）
 
 - **公众号MD文件推送飞书**：对话框复制格式会丢失，公众号文章一律生成 `.md` 文件通过 `MEDIA:` 推送到飞书，用户直接下载附件再复制到公众号后台
@@ -324,6 +324,12 @@ for item in items:
     - **🔴 规则：写完检查器必须用已知正确的算例验证解析器本身，不能只看「有没有报错」。** 已在 `scripts/lint_content_consistency.py` 内置 `_self_test()`：15 个金额算例 + 正误两条拆分算例，自检失败 → **退出码 2**（工具坏了，不是内容坏了），与「内容有问题 → 退出码 1」区分开。**改解析器后第一件事是看自检输出。**
   - **⚠️ 别留第二份旧 linter 在生产目录**：`~/.hermes/cron/scripts/toutiao_content_lint.py` 是 11-01 的早期版本，**解析器仍是坏的**（`_num('7万3')` = 70003、`_num('一万五')` = 10005），且**没有 `_self_test()`**。它与 skill 里的新版 `scripts/lint_content_consistency.py` 并存，容易被误当成"当前版本"跑起来、报出一堆假象。**规则：修复工具后，要么删掉旧副本，要么让它变成新版的一层薄封装（import 新版）。保留两个会漂移的实现 = 迟早跑错那个。**
   - **修复要改源码不重跑**：改 `toutiao_topics_extra.py` / `toutiao_story_extensions.py`，跑 linter 到退出码 0 验证；**不要重跑生成脚本**（Case R：会产生第二份产物 + 污染 topic_history），改源码对明晚生效。详见 `references/content-self-consistency-checking.md`。
+- **🔴 第六类缺陷：「孤儿扩写」—— 扩写段落整个换成了另一个故事（2026-11-04 实测）**：扩写文件里某条扩写**整个被换掉**：主体故事讲孙大爷过户被赶，扩写却写「老李头从房管局出来」；主体故事B 讲赵大爷写借条，扩写B 却写「李桂香 55 岁换了一居室」。**读者看到主角毫无预兆地换了人**（年龄/性别/关系全对不上）—— 这比数字算错更伤，直接让读者认为文章是 AI 拼的。**现有全部检查码都测不到它**（算式没错、角色也没「凭空多出」，只是整个故事换了）。详见 `references/orphan-extensions-and-hand-arithmetic-audit.md`。
+  - **检测口径（踩了三次坑才做对）**：① **不能按出现频次判主角** —— 孤儿人物在自己的扩写里往往出现得更频繁（老李头 2 次 vs 孙大爷 1 次），按频次取主角会把孤儿当主角；② **不能拿整篇单元比** —— 故事B 的主角本来就与故事A 不同，且故事B 里合法提到故事A 的人物（「比孙大爷还大两岁」）；**正确做法是按「A 对 A、B 对 B」配对比较** —— 只报「出现在扩写里、但对应主体故事里没有」的人名；③ **人名抽取太贪婪会误报一堆非人名** —— 必须要求称谓后缀且**不许跨功能字**（否则抽出「房管局」「红本子」「张问刘婶」「元的周大爷」）。
+- **🔴 审计全绿 ≠ 内容对：必须逐段通读 + 手动加数（2026-11-04 实测）**：那一晚 `audit_rendered_article.py` 报「✅ 全部检查通过」、`lint_content_consistency.py` exit 0、脚本 exit 0、飞书附件已回查送达 —— **全部绿灯**，但手工通读全文并逐笔加数抓到 **9 处读者可见硬伤 + 3 段孤儿扩写**。原因是现有规则查的是**单字段内的算式**，查不到**跨段落/跨时间链**的口径不一致（起始年龄+储蓄率+目标额算不出结束年龄；主体段「退休金3500」与扩写段「3200」不同值；声明「凑了2万」与「护工6000/月×2月」跨句对不上）。
+  - **通读时重点盯的 6 条链**：① **年龄链**（起始年龄 + 跨度 ⇒ 结束年龄，与标题一致吗）② **金额链**（总额 = 各分项之和：分家/养老出资/护工费）③ **时长链**（声明的合计月数 = 各段之和）④ **同属性取值链**（退休金/养老院月费/房租/电话费，在主体段与扩写段同值吗）⑤ **币种口径链**（块 vs 美元 vs 万；每月 vs 每年 vs 每次）⑥ **汇总链**（年终汇总「来了4次」= 前面声明的「每年回来两次」吗）。
+  - **改源码时的批次原子性陷阱**：一次批量替换里**只要有一条匹配失败，实现若写成「全部成功才落盘」，已成功的编辑会被一起丢弃**。2026-11-04 实测 16 条中 5 条匹配失败 → 11 条成功编辑全丢，得重做。**规则：逐条落盘**（每条成功立即写文件，失败的单独报告不回滚）；匹配失败时先 `src.find(key)` 打印实际源文本再改，别猜原文；改完跑 `py_compile` 三个源文件。
+  - **给 linter 加新规则时，必须在 `_self_test()` 里配「正例不报 + 反例必报」两条算例**，否则你不知道规则本身对不对（本次新增 3 条规则，第一次跑就 4 条自检失败）。**退出码语义不变**：0=内容干净 / 1=内容有问题 / **2=工具自己坏了**。自检失败时**先看自检输出再动文案** —— 绝不能因为「规则报了假阳性」就去改本来写对的文案。
 - **f-string反斜杠**：Python 3.12禁止在f-string内使用反斜杠，先拼接中间变量再塞入f-string
 - **邮件发送失败 / SMTP 授权码失效**：诊断流程属于 `cron-job-debugging` 技能的职责，不要在这里重复推导。内容侧只需要知道三件事：
   1. **内容永远先落盘再发送**：`send_email()` 失败时脚本会把渲染好的 HTML 备份到 `~/.hermes/cron/outbox/<platform>/`——这是用户唯一的内容副本，**不要清空 outbox/**。

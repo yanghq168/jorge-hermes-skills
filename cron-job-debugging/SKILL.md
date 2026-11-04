@@ -695,6 +695,42 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
      - **两套口径别混用**：`_num()` 返回**元**（`_num('5万6')` = 56000），`_wan_amount()` 返回**万**（`_wan_amount('5','6')` = 5.6），差 1e4 —— 两个函数的 docstring 都必须写清单位。
   Full write-up + the 6 recorded defects: `content-platforms/references/content-self-consistency-checking.md`.
 
+- **🔴 2026-11-04 实测：自动化审计全绿 ≠ 内容对。** 那一晚头条号文章的
+  `audit_rendered_article.py` 报「✅ 全部检查通过」、`lint_content_consistency.py`
+  exit 0、脚本 exit 0、飞书附件已回查确认送达 —— **全绿**，但**人工逐段通读 +
+  手动加数**抓到 **9 处读者可见硬伤 + 3 段「孤儿扩写」**（扩写段落整个换成了
+  另一个故事，读者看到主角无预兆换人）。
+  - **原因**：自动化规则查的是**单字段内的算式**，查不到**跨段落/跨时间链**的
+    口径不一致 —— 起始年龄+储蓄率+目标额算不出结束年龄；主体段「退休金 3500」
+    与扩写段「3200」不同值；「凑了 2 万」与「护工 6000/月 × 2 月」跨句对不上。
+  - **规则：审计内容 cron 的产物，除了跑工具，必须逐段通读并手动加数。**
+    重点盯 6 条链：① 年龄链 ② 金额链 ③ 时长链 ④ 同属性取值链
+    ⑤ 币种/口径链 ⑥ 汇总链。
+  - **通读主干 ≠ 读完**：整篇主干读下来仍可能漏 —— **扩写段落**是最容易藏
+    「整个故事被换掉」的地方（正文主干看不出异常，拼接后才发现主角换了人）。
+    扩写段落必须**单独读一遍**，并对照它对应的主体故事核人物。
+  - 详见 `content-platforms/references/orphan-extensions-and-hand-arithmetic-audit.md`。
+
+- **⚠️ 改内容源码时的批次原子性陷阱（2026-11-04）**：批量替换里**只要有一条匹配
+  失败**，实现若写成「全部成功才落盘」，**已成功的编辑会被一起丢弃**。实测 16 条
+  中 5 条因源文本措辞/空格差异匹配为 0 → 11 条成功编辑全丢、得重做一遍。
+  - **规则：逐条落盘** —— 每条替换成功后立即写文件，失败的单独报告、不回滚已成功的。
+  - **匹配失败时先打印实际源文本再改**：`src.find(key)` 拿到上下文比猜原文可靠得多。
+  - 改完对全部源文件跑 `py_compile`。
+
+- **⚠️ 给检查器加新规则时，先证明规则本身是对的（2026-11-04）**：本次给
+  `lint_content_consistency.py` 新增 3 条规则，**第一次跑就 4 条自检失败** ——
+  规则本身有 bug（金额单位口径混用差 1e4、「一个月 X」误把养老院月费当护工费、
+  人名抽取太贪婪抽出「房管局」「张问刘婶」）。
+  - **规则：新规则必须在 `_self_test()` 里配「正例不报 + 反例必报」两条算例**，
+    否则你不知道规则本身对不对。
+  - **退出码语义严格区分**：`0` = 内容干净 / `1` = 内容有问题 /
+    **`2` = 检查器自身自检失败（工具坏了，不是内容坏了）**。
+  - **自检失败时先看自检输出再动文案** —— 绝不能因为「规则报了假阳性」就去改
+    本来写对的文案（这会把对的改回错的，比漏报更危险）。
+  - **新规则要分清单位口径**：捕获组不含「万」时数值本身就是「万」，
+    组内自带「万」才是「元」；匹配「一个月 X」必须确认紧邻业务词。
+
 - **⚠️ A dead mail channel is not a dead content channel (2026-10-25, failure #62).**
   `toutiao-article-daily.py` renders its own `CHECKLIST_ITEMS` list into a visible
   "发布前检查清单" block at the bottom of every article. When v1.1.0 changed the sender
@@ -950,6 +986,7 @@ Related case-detail references:
 - `references/toutiao-cron-outage-2026-09.md` — continuation log (Cases S+, failure #34+)
 - `references/toutiao-cron-outage-2026-10-week4.md` — Cases X/Y/Z (failure #59+)
 - `content-platforms/references/topic-pool-rotation-and-length-engineering.md` — **content-quality failures that stay green**: pool sizing, LRU rotation, length assertions, `str.format()` silent-drop check (companion to the delivery-side references above)
+- `content-platforms/references/orphan-extensions-and-hand-arithmetic-audit.md` — **孤儿扩写 + 人工算账审计**：扩写段落整个换成另一个故事；自动化审计全绿但手工通读抓到 9 处硬伤。含 ORPHAN 检测规则的三次踩坑、通读要盯的 6 条链、批次替换原子性陷阱
 - `references/smtp-credential-failure-case-study.md` — full SMTP transcripts
 - `references/case-m-last-status-masking.md` — `last_status=ok` masking
 - `references/feishu-stale-thread-id-delivery-failure.md` — stale `omt_` thread_id

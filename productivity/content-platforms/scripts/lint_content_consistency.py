@@ -28,6 +28,25 @@
      一处写「每月15号轮流打」（1通/月），另一处写「每个月加起来打16次」；
      「每家每月出600，加起来1800，刚好够」但月费写的是1500。
 
+五类缺陷（2026-11-04 新增，同样全程绿灯）：
+
+  5. SPLIT_SUM_VS_INHERITED_TOTAL
+     分家各项之和 ≠ 同段声明的总额。
+     「存了40万…女儿拿了35万，儿子拿了15万」→ 35+15 = 50万 ≠ 40万。
+  6. PERIOD_TOTAL_VS_SEGMENTS / CARE_COST_VS_MONTHS
+     「一共住了十四个月」但明细 4.5+4+3 = 11.5 个月；
+     「凑了2万请护工」但护工 6000/月 × 2 月 = 1.2 万。
+  7. ORPHAN_CHARACTER（孤儿扩写）
+     扩写段落整个换成了另一个故事 —— 主体讲孙大爷过户被赶，扩写却写
+     「老李头从房管局出来」。读者看到主角无预兆地换了人。
+
+     ⚠️ 检测口径（三次踩坑）：
+     - **不能按出现频次判主角** —— 孤儿人物在自己的扩写里往往出现得
+       更频繁，按频次取主角会把孤儿当主角。
+     - **不能拿整篇单元比** —— 故事B 主角本就与故事A 不同，且故事B 里
+       合法提到故事A 的人物。必须按 **A对A、B对B 配对比较**。
+     - **人名抽取不许跨功能字**，否则抽出「房管局」「张问刘婶」。
+
 用法
 ----
     python3 lint_content_consistency.py                          # 默认头条号池
@@ -35,7 +54,9 @@
     python3 lint_content_consistency.py --extensions <ext_module.py>
     python3 lint_content_consistency.py --json                   # 机器可读
 
-退出码：0 = 未发现问题，1 = 发现问题。
+退出码：0 = 未发现问题，1 = 发现问题，**2 = 检查器自身自检失败（工具坏了，
+不是内容坏了）**。新增规则时**必须**在 `_self_test()` 里配「正例不报 +
+反例必报」两条算例 —— 否则你不知道规则本身对不对。
 
 关键设计（都是踩过的坑）
 ------------------------
@@ -46,6 +67,10 @@
   合并后刘婶那句合法的「跟儿子说」会被误报。所以 A/B 分开成两个单元。
 * **中文金额口语缩写**：「7万3」= 73000、「一万五」= 15000、
   「五千八」= 5800。解析必须还原这些省略写法，否则算式全部误判。
+* **金额单位口径要分开**：捕获组不含「万」时（`存了40万` → `40`）数值本身
+  就是「万」；组内自带「万」（`十八万七`）才是「元」。混用差 1e4。
+* **匹配「一个月X」必须确认紧邻业务词**（护工），否则会把「养老院月费
+  4200」当成护工费。
 """
 
 import argparse
@@ -397,8 +422,186 @@ def check_freq_conflict(text):
     return issues
 
 
+def _to_wan(s):
+    """把「40」/「18万7」这类捕获组还原成「万」为单位的数值。
+
+    ⚠️ 捕获组通常**不含**「万」字（如 '存了40万' 捕获到 '40'），
+    此时数值本身就是「万」；但若组内自带「万」（如 '十八万七'），
+    `_num()` 返回的是「元」，要再除 1e4。两种口径必须分开判断。
+    """
+    v = _num(s)
+    if v is None:
+        return None
+    if '万' in str(s):
+        return v / 10000.0
+    return v
+
+
+def check_inherited_total(text):
+    """分家/分遗产：各项之和 vs 文中声明的总额。
+
+    「老陈头存了40万…最后女儿拿了35万，儿子拿了15万」→ 35+15 = 50万 ≠ 40万。
+
+    ⚠️ 「差不多」是模糊量，不能直接当总额做等式判定 —— 这里只在
+    同一段里**显式出现**总额数字（「存了40万」「存款40万」）时才判。
+    """
+    issues = []
+    totals = []
+    for mm in re.finditer(r'(?:存了|存下|存款|攒了|一共|共有|总额|遗产是|手里有)'
+                          r'\s*([\d零一二两三四五六七八九十百千万]+)\s*万', text):
+        v = _to_wan(mm.group(1))
+        if v:
+            totals.append((v, text[max(0, mm.start() - 40): mm.end() + 20].replace('\n', ' ')))
+    if not totals:
+        return issues
+
+    parts = []
+    for mm in re.finditer(r'(?:拿了|拿|分到|分给|得了|分走)'
+                          r'\s*([\d零一二两三四五六七八九十百千万]+)\s*万', text):
+        v = _to_wan(mm.group(1))
+        if v:
+            parts.append((v, mm.group(0)))
+    if len(parts) < 2:
+        return issues
+
+    total = totals[0][0]
+    s = sum(p[0] for p in parts)
+    if abs(s - total) > max(0.01, total * 0.01):
+        issues.append(('SPLIT_SUM_VS_INHERITED_TOTAL',
+                       f'分家合计 {round(s, 2)} 万 ≠ 文中总额 {total} 万'
+                       f'（分项: {", ".join(p[1] for p in parts)}）',
+                       totals[0][1]))
+    return issues
+
+
+# 常见姓氏（用于孤儿人物检测，避免把「马路/方向/周末」当成人名）
+_SURNAMES = ('赵钱孙李周吴郑王冯陈褚卫蒋沈韩杨朱秦许何吕施张孔曹严华金魏陶姜谢邹喻柏水窦章云苏潘葛'
+             '范彭郎鲁韦昌马苗凤方俞任袁柳史唐费廉岑薛雷贺倪汤滕殷罗毕郝邬安常乐于时傅皮卞齐康伍余元卜顾孟平'
+             '黄穆萧尹姚邵湛汪祁毛戴谈宋庞熊纪舒屈祝董梁杜阮蓝闵季席麻强贾路娄江童颜郭林刁钟徐邱骆高夏蔡田樊胡'
+             '凌霍虞万柯管卢莫房解应宗丁宣邓郁单杭洪包左石崔吉龚程嵇裴陆荣翁荀羊惠甄曲家封储靳井段富巫乌焦巴'
+             '牧山谷车侯班秋仲伊宫宁仇栾甘厉祖武符刘景詹叶幸韶郜黎印宿白怀鄂索赖卓蔺屠蒙池乔翟谭姬申冉雍桑桂'
+             '牛通边燕浦尚农温庄柴瞿阎充慕连茹艾鱼容向古易慎戈廖步耿满匡国文寇广师巩聂敖冷辛阚简饶空曾沙鞠巢关'
+             '相查荆红游权逯盖桓')
+
+
+def _person_names(text):
+    """抽取「称谓型人名」：姓+称谓后缀 / 老X头 / 老X。
+
+    ⚠️ 必须排除普通词 —— 「房管局」「红本子」「的周大爷」都不是人名。
+    做法：
+    - **姓 + 称谓后缀**（孙大爷/吴老师/赵大爷/刘婶），中间**不允许**跨过
+      功能字（否则「张问刘婶」「元的周大爷」会被误抽）。
+    - **老 + 姓 + 头/儿/王/婶/姨/叔**（老李头/老周头/老陈头）。
+    - **光杆 老X**（老张/老李）只在**出现 ≥2 次**时才认（否则「老王」可能
+      是「老王下棋」这类普通词）。
+    - 泛称词（老伴/老太太/老大/老家…）与常见非人名词一律排除。
+    """
+    generic = {'老伴', '老太太', '老人', '老家', '老宅', '老乡', '老年', '老爷',
+               '老大', '老二', '老三', '老四', '老大爷', '老太太们', '老同事',
+               '老邻居', '老规矩', '老样子', '老账本', '老朋友', '老规矩'}
+    block = {'房管局', '红本子', '房产证', '人民币', '房款总', '任何', '事情'}
+    names = set()
+    # 姓 + 称谓后缀（中间 0 个字）
+    for mm in re.finditer(r'[' + _SURNAMES + r'](?:大爷|大妈|老师|师傅|婶|叔|姨|总)', text):
+        names.add(mm.group(0))
+    # 老 + 姓 + 头/儿/王/婶/姨/叔
+    for mm in re.finditer(r'老[' + _SURNAMES + r'](?:头|儿|王|婶|姨|叔)', text):
+        names.add(mm.group(0))
+    # 光杆 老X：只在出现 ≥2 次时认（老张、老李、老陈…）
+    for mm in re.finditer(r'老[' + _SURNAMES + r']', text):
+        n = mm.group(0)
+        if text.count(n) >= 2:
+            names.add(n)
+    return {n for n in names if n not in generic and n not in block and len(n) >= 2}
+
+
+def _ext_orphan_issues(direction, base, ext, label):
+    """扩写段落 vs 它对应的主体故事：扩展里出现主体故事没有的人名 = 孤儿。
+
+    ⚠️ 关键口径：**必须按「A对A、B对B」配对比较**。
+    - 故事B 的主角本来就和故事A 不同（周大爷 vs 老陈头）—— 拿整篇比会误报。
+    - 故事B 里合法地提到故事A 的人物（「比孙大爷还大两岁」）也不是孤儿。
+    所以只比：**扩展文本里出现、但对应主体故事里没有**的人名。
+    """
+    issues = []
+    if not ext:
+        return issues
+    base_names = _person_names(base or '')
+    for n in sorted(_person_names(ext)):
+        if n in base_names:
+            continue
+        # 派生名（主体姓氏 + 不同后缀）不算孤儿
+        if any(n[0] == b[0] or (n.startswith('老') and len(n) > 1 and n[1] == b[0])
+               for b in base_names):
+            continue
+        pos = ext.find(n)
+        issues.append(('ORPHAN_CHARACTER',
+                       f'{direction} {label} 出现「{n}」，但对应的主体故事里没有这个人 —— '
+                       f'疑似孤儿段落（整个故事被换掉了）',
+                       ext[max(0, pos - 60): pos + 60].replace('\n', ' ')))
+    return issues
+
+
+def check_period_total(text):
+    """「一共住了X个月」vs 各段时长之和；护工月费×月数 vs 实际凑的钱。"""
+    issues = []
+    # ① 合计月数 vs 明细月数
+    for mm in re.finditer(r'一共住了\s*([\d零一二两三四五六七八九十]+)\s*个月', text):
+        want = _cn(mm.group(1))
+        if not want:
+            continue
+        segs = []
+        for sm in re.finditer(
+                r'([\d零一二两三四五六七八九十]+)个月(?:零([\d零一二两三四五六七八九十]+)个?月)?',
+                text):
+            whole = _cn(sm.group(1))
+            if whole is None:
+                continue
+            half = (_cn(sm.group(2)) or 0) if sm.group(2) else 0
+            segs.append(whole + half * 0.5)
+        if len(segs) < 2:
+            continue
+        s = sum(segs)
+        if abs(s - want) > 0.01:
+            issues.append(('PERIOD_TOTAL_VS_SEGMENTS',
+                           f'声明「一共住了 {int(want)} 个月」，但各段相加 = {round(s, 2)} 个月',
+                           text[max(0, mm.start() - 60): mm.end() + 60].replace('\n', ' ')))
+    # ② 护工费：一个月X元 × N个月 vs 凑了Y
+    for mm in re.finditer(r'([\d零一二两三四五六七八九十]+)\s*个月', text):
+        n = _cn(mm.group(1))
+        if not n or n < 2:
+            continue
+        w = text[max(0, mm.start() - 150): mm.start() + 200]
+        if '护工' not in w:
+            continue
+        pm = re.search(r'一个月\s*([\d零一二两三四五六七八九十百千万]+)\s*(?:元|块)?', w)
+        if not pm:
+            continue
+        per = _num(pm.group(1))
+        # 「一个月4200」可能是养老院月费而不是护工费 —— 必须确认窗口里有护工语境，
+        # 且该「一个月X」紧邻护工字样，否则跳过（避免把月费当护工费）。
+        if '护工' not in w[max(0, w.find(pm.group(0)) - 30): w.find(pm.group(0)) + 60]:
+            continue
+        pays = re.findall(r'(?:凑了|给了|出了|拿出)\s*'
+                          r'([\d零一二两三四五六七八九十百千万]+\s*万?'
+                          r'[\d零一二两三四五六七八九十]*)', w)
+        # 窗口里出现多个出资方 → 无法判定，跳过（避免误报）
+        if len(pays) != 1:
+            continue
+        paid = _num(pays[0].replace(' ', ''))
+        if not per or not paid:
+            continue
+        if abs(per * n - paid) > max(1.0, per * n * 0.05):
+            issues.append(('CARE_COST_VS_MONTHS',
+                           f'「{int(n)} 个月」× 一个月 {per:.0f} 元 = {per * n:.0f} 元，'
+                           f'但文中说凑了 {paid:.0f} 元',
+                           w.replace('\n', ' ')[:200]))
+    return issues
+
+
 FIELD_CHECKERS = (check_sum_vs_total, check_fraction, check_period,
-                  check_split_vs_sum)
+                  check_split_vs_sum, check_inherited_total,
+                  check_period_total)
 
 
 # ---------------------------------------------------------------- 装配
@@ -625,6 +828,45 @@ def _self_test():
     bad = check_split_vs_sum('存款22万，按三个孩子平分，一人7万3，剩下的5万1留给他和老伴看病。')
     if not bad:
         failed.append('错误的拆分（7.3×3+5.1=27≠22）未被发现')
+
+    # ── 新增规则自检（2026-11-04）─────────────────────────────────────
+    # ① SPLIT_SUM_VS_INHERITED_TOTAL：分家之和 vs 声明总额
+    ok = check_inherited_total('老陈头存了40万。最后女儿拿了25万，儿子拿了15万。')
+    if ok:
+        failed.append('正确的分家（25+15=40万）被误报为缺陷')
+    bad = check_inherited_total('老陈头存了40万。最后女儿拿了35万，儿子拿了15万。')
+    if not bad:
+        failed.append('错误的分家（35+15=50≠40万）未被发现')
+
+    # ② PERIOD_TOTAL_VS_SEGMENTS：合计月数 vs 各段之和
+    ok = check_period_total('她在三个儿子家一共住了十一个半月，大儿子家四个月零半个月，'
+                            '二儿子家四个月，三儿子家三个月。')
+    if ok:
+        failed.append('正确的月数合计（11.5）被误报为缺陷')
+    bad = check_period_total('她在三个儿子家一共住了十四个月，大儿子家四个月零半个月，'
+                            '二儿子家四个月，三儿子家三个月。')
+    if not bad:
+        failed.append('错误的月数合计（14 ≠ 11.5）未被发现')
+
+    # ③ CARE_COST_VS_MONTHS：护工月费 × 月数 vs 凑的钱
+    ok = check_period_total('子女凑了1万2给他请护工，护工照顾了两个月就走了。'
+                            '请护工一个月6000，比这贵。')
+    if ok:
+        failed.append('正确的护工费（6000×2=1.2万）被误报为缺陷')
+    bad = check_period_total('子女凑了2万块钱给他请护工，护工照顾了两个月就走了。'
+                            '请护工一个月6000，比这贵。')
+    if not bad:
+        failed.append('错误的护工费（6000×2=1.2万 ≠ 2万）未被发现')
+
+    # ④ ORPHAN_CHARACTER：扩写段落里出现主体故事没有的人物
+    ok = check_orphan_character('孙大爷69岁，退休前是中学老师。房子写的是孙涛的名字。'
+                                '过户那天，孙大爷从房管局出来。他心里有一笔账。')
+    if ok:
+        failed.append('正确的主体故事被误报为孤儿段落')
+    bad = check_orphan_character('孙大爷69岁，退休前是中学老师。房子写的是孙涛的名字。'
+                                '过户那天，老李头从房管局出来。他心里有一笔账。')
+    if not bad:
+        failed.append('孤儿人物（老李头 vs 孙大爷）未被发现')
 
     if failed:
         print('❌ 解析器自检失败 —— 工具本身有问题，不是内容有问题：', file=sys.stderr)
