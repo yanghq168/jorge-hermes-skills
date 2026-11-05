@@ -422,6 +422,55 @@ def check_freq_conflict(text):
     return issues
 
 
+def check_periodic_vs_yearly(text):
+    """周期频次 vs 年度汇总次数：「每两周来一次」 vs 「今年来了24次」。
+
+    ⚠️ 2026-11-05 实测抓到 1 处（赡养义务）：大儿子「每两周来一次」
+    → 一年 26 次，但年底汇总写「今年大儿子来了24次」，读者一算就穿帮。
+    改法：改成「每半个月来一次」= 24 次 ✔。
+
+    旧规则 `check_freq_conflict` 只匹配「N次电话/来看/回来」这类**动词**，
+    匹配不到「今年大儿子来了24次」里的「来了N次」 —— 所以它全程绿灯。
+    """
+    issues = []
+    # ① 周期频次 → 推算一年次数
+    periodic = []   # (年次数, 描述)
+    for mm in re.finditer(r'每\s*([\d零一二两三四五六七八九十两半]+)\s*'
+                          r'(周|星期|礼拜|个月|月)\s*(?:来|去|看|打|聚|回)', text):
+        unit = mm.group(2)
+        per = mm.group(1)
+        if '半' in per:
+            n = 0.5
+        else:
+            n = _cn(per)
+        if n is None:
+            continue
+        if unit in ('周', '星期', '礼拜'):
+            per_year = 52 / n
+            label = f'每{n:g}{unit}'
+        else:
+            per_year = 12 / n
+            label = f'每{n:g}个月'
+        periodic.append((per_year, label, mm.group(0)))
+
+    # ② 年度汇总次数
+    yearly = []
+    for mm in re.finditer(r'今年[^。；]{0,40}?([\d零一二两三四五六七八九十]+)\s*次', text):
+        v = _cn(mm.group(1))
+        if v is not None:
+            yearly.append((v, mm.group(0)))
+
+    for per_year, label, ctx in periodic:
+        for v, yctx in yearly:
+            # 允许「每年N次」这种本身一年就N次的声明被覆盖（per_year 恰好等于 v）
+            if abs(per_year - v) > 0.6 and per_year >= 4:
+                issues.append(('PERIODIC_VS_YEARLY',
+                               f'「{label}」一年应有约 {per_year:.0f} 次，'
+                               f'但文中汇总写「{yctx}」（{int(v)} 次）',
+                               text[max(0, mm.start() - 50): mm.end() + 60].replace('\n', ' ')))
+    return issues
+
+
 def _to_wan(s):
     """把「40」/「18万7」这类捕获组还原成「万」为单位的数值。
 
@@ -542,6 +591,37 @@ def _ext_orphan_issues(direction, base, ext, label):
     return issues
 
 
+def check_orphan_character(base_text, ext_text):
+    """孤儿扩写检测（单测友好版）：扩写段落出现了主体故事里没有的人。
+
+    ⚠️ 2026-11-05 修复：**这个函数之前根本不存在**。
+    11-04 加 ORPHAN 规则时只写了 `_ext_orphan_issues()`（内部实现），
+    `_self_test()` 里却调用了一个从未定义的 `check_orphan_character()` ——
+    于是 **linter 从 11-04 起每次都崩在自检上**（NameError，退出码 1，
+    语义被误读成「内容有问题」）。真正的 ORPHAN 规则也从未接入 `lint()`，
+    所以 11-04、11-05 两晚的「linter exit 0 全绿」是假的 —— 根本没跑到检查。
+
+    修法：补一个「两段文本」版的基础实现（自检用），
+    真正的池级检查仍走 `_ext_orphan_issues()`（它按 A对A / B对B 配对）。
+    """
+    issues = []
+    if not ext_text:
+        return issues
+    base_names = _person_names(base_text or '')
+    for n in sorted(_person_names(ext_text)):
+        if n in base_names:
+            continue
+        # 派生名（主体姓氏 + 不同后缀）不算孤儿
+        if any(n[0] == b[0] or (n.startswith('老') and len(n) > 1 and n[1] == b[0])
+               for b in base_names):
+            continue
+        pos = ext_text.find(n)
+        issues.append(('ORPHAN_CHARACTER',
+                       f'扩写段落出现「{n}」，但主体故事里没有这个人 —— 疑似孤儿段落',
+                       ext_text[max(0, pos - 60): pos + 60].replace('\n', ' ')))
+    return issues
+
+
 def check_period_total(text):
     """「一共住了X个月」vs 各段时长之和；护工月费×月数 vs 实际凑的钱。"""
     issues = []
@@ -596,6 +676,32 @@ def check_period_total(text):
                            f'「{int(n)} 个月」× 一个月 {per:.0f} 元 = {per * n:.0f} 元，'
                            f'但文中说凑了 {paid:.0f} 元',
                            w.replace('\n', ' ')[:200]))
+    return issues
+
+
+def check_prompt_language(text):
+    """配图提示词里混进了中文 → 生图会渲染出乱码文字。
+
+    ⚠️ 2026-11-05 实测抓到 2 处：
+    - 赡养义务 img1：`daughter-in-law's背影 walking away`
+    - 晚年孤独 img2：`empty water glass beside him,发烧没人知道的场景`
+
+    提示词是给 DALL·E / image2 用的**英文** prompt，中文片段会被模型
+    当成要画在画面里的文字 —— 读者看到的是一张带乱码汉字的图。
+    所以「配图提示词必须是纯英文」是一条硬规则，不是风格偏好。
+
+    注意：`desc`（中文描述）和 `scene`（中文场景名）**允许**中文 ——
+    它们是给人看的，不是给模型看的。只查 `prompt` / `cover_prompt`。
+    """
+    issues = []
+    if not isinstance(text, str) or not text:
+        return issues
+    hits = re.findall(r'[\u4e00-\u9fff]+', text)
+    if hits:
+        issues.append(('PROMPT_HAS_CJK',
+                       f'配图提示词里混入中文「{"".join(hits)}」—— 生图会渲染成乱码文字，'
+                       f'提示词必须是纯英文',
+                       text[:160]))
     return issues
 
 
@@ -686,7 +792,8 @@ def _units_for(topic, ext):
 
 
 UNIT_CHECKERS = (check_role_consistency, check_freq_conflict,
-                 check_periodic_vs_count, check_per_child_contribution)
+                 check_periodic_vs_count, check_per_child_contribution,
+                 check_periodic_vs_yearly)
 
 
 def lint(pools, extensions):
@@ -719,6 +826,39 @@ def lint(pools, extensions):
                         issues.append({'pool': pool_name, 'direction': direction,
                                        'field': uname, 'code': code,
                                        'message': msg, 'context': ctx.strip()})
+
+            # ③ 孤儿扩写：扩写段落出现了对应主体故事里没有的人物
+            #    ⚠️ 2026-11-05 修复：这条规则 11-04 写了但**从未接入 lint()** ——
+            #    加了函数、写了自检，却忘了挂到主流程，所以 ORPHAN 检测一直是空转。
+            if ext:
+                ea, eb = _ext_pair(ext)
+                base_a = '\n'.join(x for x in (t.get('story_a', '') or '',
+                                              t.get('story_a_dialogue', '') or '',
+                                              t.get('story_a_ending', '') or '') if x)
+                base_b = '\n'.join(x for x in (t.get('story_b', '') or '',
+                                              t.get('story_b_ending', '') or '') if x)
+                for code, msg, ctx in _ext_orphan_issues(direction, base_a, ea, '故事A扩写'):
+                    issues.append({'pool': pool_name, 'direction': direction,
+                                   'field': '故事A扩写', 'code': code,
+                                   'message': msg, 'context': ctx.strip()})
+                for code, msg, ctx in _ext_orphan_issues(direction, base_b, eb, '故事B扩写'):
+                    issues.append({'pool': pool_name, 'direction': direction,
+                                   'field': '故事B扩写', 'code': code,
+                                   'message': msg, 'context': ctx.strip()})
+
+            # ④ 配图提示词语言：必须是纯英文（中文会被生图模型画成乱码文字）
+            #    注意只查 prompt 字段，desc / scene 是中文给人看的，允许中文。
+            prompt_fields = [('cover_prompt', t.get('cover_prompt', ''))]
+            for ip in t.get('in_image_prompts', []) or []:
+                if isinstance(ip, dict):
+                    num = ip.get('num', '?')
+                    prompt_fields.append((f'in_image_prompts[{num}].prompt',
+                                          ip.get('prompt', '')))
+            for fname, ptext in prompt_fields:
+                for code, msg, ctx in check_prompt_language(ptext):
+                    issues.append({'pool': pool_name, 'direction': direction,
+                                   'field': fname, 'code': code,
+                                   'message': msg, 'context': ctx.strip()})
     return issues
 
 
@@ -859,14 +999,48 @@ def _self_test():
         failed.append('错误的护工费（6000×2=1.2万 ≠ 2万）未被发现')
 
     # ④ ORPHAN_CHARACTER：扩写段落里出现主体故事没有的人物
-    ok = check_orphan_character('孙大爷69岁，退休前是中学老师。房子写的是孙涛的名字。'
+    #    ⚠️ 2026-11-05 修复：这里原本调用一个**从未定义**的
+    #    check_orphan_character()（单参版），linter 自 11-04 起每次都崩在
+    #    自检上 → NameError → 退出码 1（语义被误读成「内容有问题」）。
+    #    现在统一成两参版（base, ext），与实现契约一致。
+    ok = check_orphan_character('孙大爷69岁，退休前是中学老师。房子写的是孙涛的名字。',
                                 '过户那天，孙大爷从房管局出来。他心里有一笔账。')
     if ok:
         failed.append('正确的主体故事被误报为孤儿段落')
-    bad = check_orphan_character('孙大爷69岁，退休前是中学老师。房子写的是孙涛的名字。'
-                                '过户那天，老李头从房管局出来。他心里有一笔账。')
+    bad = check_orphan_character('孙大爷69岁，退休前是中学老师。房子写的是孙涛的名字。',
+                                 '过户那天，老李头从房管局出来。他心里有一笔账。')
     if not bad:
         failed.append('孤儿人物（老李头 vs 孙大爷）未被发现')
+    # 空扩写不得报错
+    if check_orphan_character('孙大爷69岁，退休前是中学老师。', ''):
+        failed.append('空扩写被误报为孤儿段落')
+
+    # ⑤ PROMPT_HAS_CJK：配图提示词必须是纯英文
+    ok = check_prompt_language("An elderly Chinese woman sitting alone at a dining table, "
+                                "daughter-in-law's back walking away, no text --ar 16:9")
+    if ok:
+        failed.append('纯英文配图提示词被误报为缺陷')
+    bad = check_prompt_language("An elderly Chinese man lying alone on a sofa, "
+                                "empty water glass beside him,发烧没人知道的场景")
+    if not bad:
+        failed.append('配图提示词里的中文（会渲染成乱码）未被发现')
+    # 空提示词不得报错
+    if check_prompt_language(''):
+        failed.append('空配图提示词被误报为缺陷')
+
+    # ⑥ PERIODIC_VS_YEARLY：周期频次 vs 年度汇总次数
+    ok = check_periodic_vs_yearly('大儿子每半个月来一次。二儿子每个月来一次。'
+                                  '今年大儿子来了24次，二儿子来了12次，小儿子来了2次。')
+    if ok:
+        failed.append('正确的周期频次（每半个月=24次）被误报为缺陷')
+    bad = check_periodic_vs_yearly('大儿子每两周来一次。二儿子每个月来一次。'
+                                   '今年大儿子来了24次，二儿子来了12次。')
+    if not bad:
+        failed.append('周期频次与年度汇总矛盾（每两周=26次≠24次）未被发现')
+    # 「每个月来一次」= 12 次，与汇总 12 次一致，不得报错
+    ok2 = check_periodic_vs_yearly('二儿子每个月来一次。今年二儿子来了12次。')
+    if ok2:
+        failed.append('正确的每月频次（12次）被误报为缺陷')
 
     if failed:
         print('❌ 解析器自检失败 —— 工具本身有问题，不是内容有问题：', file=sys.stderr)

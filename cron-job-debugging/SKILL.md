@@ -410,7 +410,7 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   a runbook dispatch, not an investigation. See Case H for the canonical
   terse report template.
 
-- **The README extension is independent of the failure report — and it is the
+- **⚠️ The README extension is independent of the failure report — and it is the
   step agents skip at high N.** At failure count ≥30 the terse dispatch report
   already "feels complete", so agents skip the `## YYYY-MM-DD（持续中 — 第N天）`
   README append. But the report rides the `deliver` channel and scrolls past;
@@ -419,6 +419,20 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   `grep -c "^## " ~/.hermes/cron/outbox/<platform>/README.md` — the count must
   increase by 1 per session. See the Escalation policy below and Case W in
   `references/case-log-chronic-outage.md`.
+
+- **🔴 Do the README append EARLY, not last (2026-11-05, a session got cut off).**
+  A cron session hit its tool-call limit *after* the content fixes and verification
+  but *before* the README append and the outbox prune — the two terminal actions.
+  The fixes landed in the source (good), but the cross-session outage log skipped a
+  night, so the next session's "第N天" counter was wrong and the README had no
+  record of the linter repair.
+  **Rule: for a chronic-outage cron, append the README entry and prune the outbox
+  EARLY in the session** (right after confirming delivery), not as cleanup at the end.
+  The audit/fix work is the part that can be cut off; the persistence step must not
+  be. If you suspect you're near a limit, write the README entry first and treat any
+  remaining analysis as a bonus.
+  Also note the README heading count is the verification: `grep -c "^## "` must go up
+  by exactly 1 per session — if it didn't, the entry was never written.
 
 - **⚠️ Case K ("IP-level AUTH block") is NOT reproducible on this deployment — never cite
   it without a fresh raw-socket control test.** Originally "discovered" 2026-09-11 (failure
@@ -682,6 +696,38 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   `str.format()` silent-drop check) in
   `content-platforms/references/topic-pool-rotation-and-length-engineering.md`.
 
+- **🔴 The audit tool can be DEAD and the session still reports "all green" (2026-11-05, 2 nights lost).**
+  The content linter (`lint_content_consistency.py`) crashed on **every** run for two
+  consecutive nights — `NameError: check_orphan_character` (the `_self_test()` called a
+  function that was never defined) — **and the ORPHAN rule it was supposed to enforce
+  was never wired into `lint()` at all**. Both nights were recorded as "linter green,
+  content clean". They were not: the linter never reached the check.
+  **Root cause of the concealment: the exit code was swallowed by a pipe.**
+  `python3 linter.py ... | tail -30; echo "EXIT=$?"` reports **tail's** exit code (0),
+  not the linter's. The linter actually exited 1 with **empty stdout** and a one-line
+  traceback on stderr.
+  **Rules:**
+  - **Never run an audit tool through a pipe when you care about its exit code.**
+    ```bash
+    python3 linter.py --pool ... --extensions ... > /tmp/lo.txt 2>/tmp/le.txt
+    echo "REAL EXIT=$?"; cat /tmp/lo.txt; echo "--stderr--"; cat /tmp/le.txt
+    ```
+  - **Triage by output shape, not by the exit code alone:** *stdout empty + stderr has a
+    traceback* = **the tool is broken**, not "the content has problems". These demand
+    opposite responses (fix the tool vs. fix the prose) and mixing them up wastes a
+    night.
+  - **A tool that self-checks must exit 2 on self-check failure** — never let an
+    exception drag it down to 1, which means "content has problems".
+  - **"I wrote the function" ≠ "the rule works."** Prove a new rule fires by feeding it
+    a real counter-example (a temp pool + temp extensions file) and asserting exit 1
+    plus the expected check code. Running it against clean content only proves the
+    empty-set case, which is exit 0 regardless of whether the rule is wired up.
+  - **When a cron session's report says "audit passed", check the audit tool's own
+    health at least once per session** — a green light from a tool you haven't run
+    correctly is not evidence.
+  - Full write-up (incl. the `PROMPT_HAS_CJK` and `PERIODIC_VS_YEARLY` rules added
+    alongside the repair): `content-platforms/references/audit-tool-death-and-prompt-language.md`.
+
 - **⚠️ Even a GREEN content audit can hide a broken product: check the arithmetic and the cast (2026-11-01).** The diagnostic order above says "measure the product first, then diagnose delivery" — but `audit_rendered_article.py` measures **length and structure only** (word count, sections present, image prompts, hashtags, micro-post word range). It **cannot** see (a) numbers that don't add up, or (b) characters that don't exist. Measured on a shipped article: monthly fee 8000, children contributed 5000+5000+3000 = **13000**, and the text claimed the children "covered a bit over half"; a character declared "two daughters" then referred to "his son" twice; a micro-post split 220,000 as "73,000 each ×3 + 51,000" = **270,000**. Every green light stayed green: script exit 0, HTML rendered, Feishu attachment delivered, audit exit 0 "全部检查通过". The only thing that caught it was **reading the rendered prose and doing the arithmetic by hand**.
   **Root cause: the article is assembled from multiple sources.** The pool entry lives in `toutiao_topics_extra.py`; the **expansion paragraphs live in a separate file `toutiao_story_extensions.py`** and are concatenated onto `story_a`/`story_b` at render time. Base text says "two daughters each give 1,000/month"; the expansion says "he doesn't ask his son for money". Neither is wrong alone — **together they are wrong**. No single-file check can find this.
   **Rules:**
@@ -807,6 +853,22 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   ⚠️ Corollary: the harness must inject its history path, and the module under test
   must therefore accept one (`def _pick_micro_index(used_indices, history_path=None)`).
   A function that hardcodes a global path can only be tested against production data.
+
+- **✅ Cheap proof that the script fired exactly once — check the crontab log + the
+  outbox together (2026-11-05).** Two independent signals, both one-liners:
+  ```bash
+  grep "toutiao-article-daily" /var/log/syslog | grep "$(date +%Y-%m-%d)" | tail -3
+  ls -t ~/.hermes/cron/outbox/<platform>/*.html | head -1 | xargs stat -c '%y %n'
+  ```
+  If syslog shows **one** `CRON[...] CMD (python3 .../toutiao-article-daily.py ...)`
+  line dated today AND the newest outbox HTML is dated today, classic cron fired
+  exactly once → **0 runs allowed for the reporting session** (Case R). A single
+  `grep -c` on the log is enough to rule out a double-fire; don't guess.
+  Pair it with the outbox filename check (`YYYYMMDD_HHMM_<direction>.html` — one file
+  per night) to confirm no second product was generated.
+  Note the log line shows the **redirect target** (`>> .../logs/<script>.log`), so the
+  same log file is the place to read the night's stdout/stderr without re-running
+  anything.
 
 ## Cross-reference: known recurring outage
 
@@ -987,6 +1049,7 @@ Related case-detail references:
 - `references/toutiao-cron-outage-2026-10-week4.md` — Cases X/Y/Z (failure #59+)
 - `content-platforms/references/topic-pool-rotation-and-length-engineering.md` — **content-quality failures that stay green**: pool sizing, LRU rotation, length assertions, `str.format()` silent-drop check (companion to the delivery-side references above)
 - `content-platforms/references/orphan-extensions-and-hand-arithmetic-audit.md` — **孤儿扩写 + 人工算账审计**：扩写段落整个换成另一个故事；自动化审计全绿但手工通读抓到 9 处硬伤。含 ORPHAN 检测规则的三次踩坑、通读要盯的 6 条链、批次替换原子性陷阱
+- `content-platforms/references/audit-tool-death-and-prompt-language.md` — **审计工具自己死了**（linter 连坏 2 晚，退出码被管道吞掉 →「全绿」是假的；「写了函数 ≠ 规则生效」）+ 配图提示词混中文 + 周期频次 vs 年度汇总。**跑审计工具必须单独看退出码**
 - `references/smtp-credential-failure-case-study.md` — full SMTP transcripts
 - `references/case-m-last-status-masking.md` — `last_status=ok` masking
 - `references/feishu-stale-thread-id-delivery-failure.md` — stale `omt_` thread_id
