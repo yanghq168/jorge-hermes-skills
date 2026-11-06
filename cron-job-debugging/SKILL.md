@@ -447,12 +447,34 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   credential and returns Case A (explicit 535). The reason `smtplib.login()` appears to
   "hide" the 535 is purely client-side: `smtplib` tries AUTH PLAIN, gets the 535, retries AUTH
   LOGIN, and the second attempt's abrupt teardown surfaces as `SMTPServerDisconnected`.
-  That exception is a *symptom of smtplib's retry logic*, not evidence of an IP block.
+  That exception is a **symptom of smtplib's retry logic**, not evidence of an IP block.
   **Operational rule:** never conclude "IP-level block" from `SMTPServerDisconnected`
   alone. Drive the session yourself — `socket.create_connection()` + `ssl.wrap_socket()`,
   then send `AUTH LOGIN`, base64 username, base64 password, printing every server line. If a
   `535` appears, the credential is dead; the fix is regenerating the auth code, full stop.
   Also keep `references/smtp-credential-failure-case-study.md` in sync with this correction.
+
+- **⚠️ A backfilled outage log must cover EVERY missed night, not just tonight (2026-11-06).**
+  The "append README early" rule fires per *session*, but sessions can be cut off before
+  they append — so the log develops **holes**, not just a missing tail. On 2026-11-06 the
+  README's last entry was 11-03 (day 71) even though 11-04 and 11-05 had both run and
+  been delivered; the 11-04 session was truncated mid-work and the 11-05 session ran out
+  of tool-call budget before its append.
+  - **Fix on the next session: backfill EVERY gap night**, not only the current one. Each
+    backfilled entry needs the same fields as a live one: symptom, cron trigger count,
+    generated article + direction, HTML backup path + size, PENDING/STANDBY presence,
+    Feishu `message_id` (readable from the scheduler output log at
+    `~/.hermes/cron/output/<job_id>/*.md` — **don't re-run the script to get one**, that
+    makes a second artifact), and what was fixed.
+  - **Source the facts from the artifacts, not from memory**: `outbox/<platform>/YYYYMMDD_HHMM_<direction>.html`
+    for title/direction, the `STANDBY_YYYYMMDD.txt` file for the failure reason, and the
+    scheduler output log for the `message_id`.
+  - **Verify the backfill with the heading count**, not by eyeballing:
+    `grep -n '^## ' outbox/<platform>/README.md` — the count of `## YYYY-MM-DD` headings
+    must increase by the number of nights backfilled (not by 1).
+  - **Corollary:** the "count must increase by exactly 1 per session" check is for a
+    *single-night* session. When you discover holes, the expected delta is
+    *1 + (number of missing nights)*.
 
 - **`crontab.txt` and Hermes `jobs.json` are independent schedulers.** Some
   deployments run the same script under both classic cron (`crontab -l` →
@@ -1050,6 +1072,7 @@ Related case-detail references:
 - `content-platforms/references/topic-pool-rotation-and-length-engineering.md` — **content-quality failures that stay green**: pool sizing, LRU rotation, length assertions, `str.format()` silent-drop check (companion to the delivery-side references above)
 - `content-platforms/references/orphan-extensions-and-hand-arithmetic-audit.md` — **孤儿扩写 + 人工算账审计**：扩写段落整个换成另一个故事；自动化审计全绿但手工通读抓到 9 处硬伤。含 ORPHAN 检测规则的三次踩坑、通读要盯的 6 条链、批次替换原子性陷阱
 - `content-platforms/references/audit-tool-death-and-prompt-language.md` — **审计工具自己死了**（linter 连坏 2 晚，退出码被管道吞掉 →「全绿」是假的；「写了函数 ≠ 规则生效」）+ 配图提示词混中文 + 周期频次 vs 年度汇总。**跑审计工具必须单独看退出码**
+- `content-platforms/references/hook-promise-and-title-payoff-audit.md` — **钩子承诺不兑现（标题党翻车）**：钩子/标题承诺的画面、引语、数字正文一个字都没写 → 读者点进来想看的东西看不到。2026-11-06 实测 10/10 长文命中且全程绿灯。内容侧的「单字段自洽、跨字段失配查不到」盲区
 - `references/smtp-credential-failure-case-study.md` — full SMTP transcripts
 - `references/case-m-last-status-masking.md` — `last_status=ok` masking
 - `references/feishu-stale-thread-id-delivery-failure.md` — stale `omt_` thread_id

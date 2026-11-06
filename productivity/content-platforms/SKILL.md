@@ -51,8 +51,10 @@ cronjob (定时)
 - **`references/topic-pool-rotation-and-length-engineering.md`** — **选题池轮换与字数工程（通用）**：池子大小=轮换周期、去重窗口必须跟随池子大小、窗口按「条数」算对微头条是错的、LRU 算法、`str.format()` 静默丢弃 kwargs、检查清单数字必须被自动断言、**检查清单/版本号字符串漂移（缺陷四）**、**审计时必须测「装配后的最终产物」而不是中间返回值**、**微头条字数要测 `content` 字段而不是渲染块**。适用于任何「有限选题池+每日产出」的 cron 内容脚本
 - **`references/content-self-consistency-checking.md`** — **内容自洽性（缺陷五）详解**：数字算不通、角色凭空多出 —— 审计工具测不出的第五类失败模式。含 6 处实录、根因（选题池 + 扩写段落多处拼接）、A/B 单元切分、中文金额口语缩写解析陷阱、与 Case R 的关系
 - **`references/orphan-extensions-and-hand-arithmetic-audit.md`** — **孤儿扩写 + 人工算账审计**：扩写段落整个换成另一个故事；自动化审计全绿但手工通读抓到 9 处硬伤。含 ORPHAN 检测规则的三次踩坑（不能按频次判主角 / 不能拿整篇比 / 人名抽取太贪婪）、通读要盯的 6 条链、**批次替换原子性陷阱**（一条失败会丢弃整批成功编辑）、给 linter 加规则的自检纪律
+- **`references/hook-promise-and-title-payoff-audit.md`** — **缺陷八「钩子承诺不兑现」**：钩子/标题承诺的具体场景、引语、数字，正文一个字都没写 → 读者点进来想看的画面看不到 = **标题党翻车**。2026-11-06 实测 **10/10 长文全部命中**，且全程绿灯（audit exit 0 + linter exit 0 + 飞书已送达）。含 10 条选题的实测矩阵、只查「可客观验证」的承诺口径（引语 / 数字 / 年龄链）、**修法要写进正文而不是把钩子写软**、兑现段放哪里、`HOOK_PROMISE` 规则的完整契约（函数签名 + 必须接进 `lint()` + `_self_test()` 两条算例）、以及「中文间误插空格」的全库扫描 grep
 - **`references/audit-tool-death-and-prompt-language.md`** — **缺陷七：审计工具自己死了**（linter 连续 2 晚崩在自检上却因退出码语义混淆而没被发现；「写了函数 ≠ 规则生效」）+ **配图提示词混中文**（会渲染成乱码汉字，新增 `PROMPT_HAS_CJK`）+ **周期频次 vs 年度汇总**（新增 `PERIODIC_VS_YEARLY`）。含「跑审计工具必须单独看退出码，不能看管道里 tail 的」硬规则
-- **`scripts/audit_rendered_article.py`** — **产物审计脚本（通用）**：一条命令量出已渲染 HTML 的正文中文字数、结构完整性（故事A·对话/结局、观点、行动、金句）、配图提示词数与 `no text` 约束、话题标签数、微头条 `content` 字数是否落在 [150,250]。`--pool <content_script.py>` 顺便核对选题池；`--json` 机器可读。改完生成器后必跑，别手写正则数字数
+- **`scripts/apply_hook_promise.py`** — **HOOK_PROMISE 规则落地补丁**（2026-11-06 新增，尚未应用到 linter）：把 `check_hook_promise()` + `_hook_promise_body()` + `lint()` 调用点 + `_self_test()` 算例**一次性注入** `lint_content_consistency.py`。用法：`python3 apply_hook_promise.py <lint_content_consistency.py>` → `py_compile` → 跑 linter 单独看退出码。**落地后必须用真实反例实测会 fire**（断言 exit 1 + 报出 `HOOK_PROMISE`）——只跑干净内容 exit 0 证明不了规则接上了。规则设计与实测矩阵见 `references/hook-promise-and-title-payoff-audit.md`
+- **`scripts/audit_rendered_article.py`** — **产物审计脚本（通用）**：一条命令量出已渲染 HTML 的正文中文字数、结构完整性（故事A·对话/结局、故事B·结局、观点、行动、金句）、配图提示词数与 `no text` 约束、话题标签数、微头条 `content` 字数是否落在 [150,250]。`--pool <content_script.py>` 顺便核对选题池；`--json` 机器可读。改完生成器后必跑，别手写正则数字数
 - **`scripts/lint_content_consistency.py`** — **内容自洽性 lint（通用）**：查数字算不算得通、角色存不存在。`audit_rendered_article.py` 测不出算术错误与凭空多出的角色（这类缺陷全程绿灯，读者一按计算器就穿帮）。检查码：`SUM_EXCEEDS_FEE`/`SUM_VS_HALF_CLAIM`/`SPLIT_VS_TOTAL`/`FRACTION_MISMATCH`/`PERIOD_MONTH_YEAR`/`CONTRIB_VS_FEE`/`PHANTOM_SON`/`FREQ_CONFLICT`/`PERIODIC_VS_COUNT`，以及 2026-11-04 新增的 `SPLIT_SUM_VS_INHERITED_TOTAL`（分家之和≠声明总额）/`PERIOD_TOTAL_VS_SEGMENTS`（合计月数≠各段之和）/`CARE_COST_VS_MONTHS`（护工月费×月数≠实付）/`ORPHAN_CHARACTER`（扩写段落出现主体故事没有的人物），以及 2026-11-05 新增的 `PROMPT_HAS_CJK`（配图提示词混入中文→生图乱码）/`PERIODIC_VS_YEARLY`（周期频次≠年度汇总次数）。`--pool <script.py>`、`--extensions <ext.py>`、`--json`；退出码 0=干净 / 1=内容有问题 / **2=工具自检失败（工具坏了，不是内容坏了）**。**改完生成器/扩写段落必跑**；新增规则时**必须**在 `_self_test()` 里配「正例不报 + 反例必报」两条算例，**且必须实测规则会 fire**（造真实反例断言 exit 1）—— 只跑干净内容 exit 0 证明不了规则接上了。**跑完必须单独看退出码**（别用管道吞掉它），详见 `references/audit-tool-death-and-prompt-language.md`
 - `references/xhs-travel-guide-sample.md` — 小红书旅游攻略参考实现
 - `references/xhs-travel-script-identifier.md` — **两个旅游脚本辨析**：`xhs-travel-daily.py`（主，23:00）vs `xiaohongshu-travel-daily.py`（旧，已停用）+ shell转义踩坑
@@ -350,6 +352,23 @@ for item in items:
   - 新增检查码 `PERIODIC_VS_YEARLY`：把「每X周/每X个月」换算成一年次数，与「今年…N次」比对，差值 > 0.6 才报。
   - 内容修法：「每两周来一次」改「**每半个月**来一次」（= 24 次/年 ✔）。
 - **⚠️ 微头条字数按 CJK 字符数算，不是 `len()`**：10 条微头条的 `len(content)` 全都 > 250（260–319），但 **CJK 字符数**全在 150–250 区间（185–250）。`audit_rendered_article.py` 用的是 CJK 口径，「越界 0 条」是对的。**不要因为 `len()` 超了就以为越界。**
+- **🔴 第八类缺陷：「钩子承诺不兑现」—— 读者点进来想看的画面，正文根本没写（2026-11-06 实测）**：钩子（hook）是头条最值钱的流量钩子，但它承诺的具体场景、引语、数字，**正文经常一个字都没有**。2026-11-06 实测 **10 条长文全部命中**（如钩子写「儿媳搜老人养老院一个月多少钱」「发烧38度5倒了一杯水」「三个子女吵了三个小时差点打起来」—— 正文全无），**且全程绿灯**：脚本 exit 0、`audit_rendered_article.py` exit 0、`lint_content_consistency.py` exit 0、飞书附件已送达。
+  - **为什么这比数字算错更伤**：① **标题党翻车** —— 读者为钩子那个画面点进来，正文给的是另一出戏；② 钩子用「网友@XXX 投稿」口吻，读者会认定故事是真的，一对照就露馅 → 怀疑**整篇都是编的**。
+  - **逃逸原因**：`audit_rendered_article.py` 测长度与结构，`lint_content_consistency.py` 测算术与角色 —— **两者都不测「这句话跟当篇故事有没有关系」**。这与缺陷五/六是同一类盲区：**单字段自洽，跨字段失配查不到**。
+  - **修法方向（关键）**：把场景**写进正文**，**不要把钩子写软**。钩子是读者点进来的唯一理由，优先级高于正文顺滑。兑现段要带**新细节**（动作/心理/后果），不能只是复制钩子原句。
+  - **检测口径（只查可客观验证的）**：① 引号内对话（`'…'` `"…"` `「…」` `『…』`，含 ≥2 汉字）必须原样出现在**装配后**正文；② 数字（含**标题里的年龄**）必须出现；③ 动作短语（「绕道走」「问了他三遍」）作人工通读清单，不做硬规则。
+  - **⚠️ 装配口径**：正文 = `story_a` + `story_a_dialogue` + `story_a_ending` + `story_b` + `story_b_ending` **+ 对应扩写段**。只测 `story_a` 会误报（很多兑现段在扩写里）。
+  - **新增永久规则 `HOOK_PROMISE`**（契约见 `references/hook-promise-and-title-payoff-audit.md`）：⚠️ **「写了函数」≠「规则生效」** —— 必须接进 `lint()` 主流程，并**用真实反例实测会 fire**（断言 exit 1 + 报出 `HOOK_PROMISE`）；只跑干净内容 exit 0 证明不了规则接上了（空集合也 exit 0）。
+  - **顺带**：中文字符间误插空格（本次抓到「你**不 定**，他就永远没时间」，已随 3 份产物出厂）—— 全库两行扫完：
+    ```bash
+    grep -oP '[\x{4e00}-\x{9fff}] [\x{4e00}-\x{9fff}]' <源文件> | sed 's/.*://' | sort | uniq -c
+    ```
+    ⚠️ 排除合法的 `@昵称 的投稿` 句式（那是刻意的分隔）。
+  - **检查清单新增一条**（会渲染给读者）：「钩子和标题里的场景、引语、正文都兑现了吗？」
+- **⚠️ 持久化日志要早做，别留到最后做清理**：工具调用额度随时可能截断。
+  **审计/修复是可选项，持久化不是。** 本次会话在**开头**就补齐了 README 的 3 条遗漏条目
+  （11-04/11-05/11-06），而不是留到最后 —— 用 `grep -c "^## "` 核验标题数 +1。
+  这是对 `cron-job-debugging` 里「README append EARLY」纪律在内容侧的应用。
 - **f-string反斜杠**：Python 3.12禁止在f-string内使用反斜杠，先拼接中间变量再塞入f-string
 - **邮件发送失败 / SMTP 授权码失效**：诊断流程属于 `cron-job-debugging` 技能的职责，不要在这里重复推导。内容侧只需要知道三件事：
   1. **内容永远先落盘再发送**：`send_email()` 失败时脚本会把渲染好的 HTML 备份到 `~/.hermes/cron/outbox/<platform>/`——这是用户唯一的内容副本，**不要清空 outbox/**。
