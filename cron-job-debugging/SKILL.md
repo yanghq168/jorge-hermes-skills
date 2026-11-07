@@ -744,6 +744,16 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
     a real counter-example (a temp pool + temp extensions file) and asserting exit 1
     plus the expected check code. Running it against clean content only proves the
     empty-set case, which is exit 0 regardless of whether the rule is wired up.
+  - **🔴 2026-11-07 新增第三步：「跨池型不误报」。** 前两步（正例不报 + 反例必报）**都不够** ——
+    `HOOK_PROMISE` 规则落地时两步都过了，却立刻产生 **14 处假阳性**（15 处命中里只有 1 处是真缺陷）。
+    根因：规则自己的装配函数只认 `story_a`/`story_b` 系列字段，而**微头条池的正文在 `content`** ——
+    微头条的「正文」被装配成空串，于是钩子/标题里的每个数字都判成「未兑现」。
+    **第三步：对每一个选题池各跑一遍，把命中项连同该池正文一起打出来逐条人工核对。**
+    ⚠️ **不要只看汇总数**（15 实际只有 1 个真缺陷）—— 汇总数会让人以为是 15 个缺陷。
+    便捷工具：`content-platforms/scripts/check_pool_type_false_positives.py`
+    （退出码 2 = 装配不出正文 = 该池字段结构与装配函数不匹配 = 假阳性来源）。
+    **新增装配函数前，先看 linter 里有没有现成的池型分叉助手**（`_units_for()` / `_ext_pair()`）——
+    自造第二套装配逻辑 = 迟早与主流程漂移。
   - **When a cron session's report says "audit passed", check the audit tool's own
     health at least once per session** — a green light from a tool you haven't run
     correctly is not evidence.
@@ -774,6 +784,16 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   - **规则：审计内容 cron 的产物，除了跑工具，必须逐段通读并手动加数。**
     重点盯 6 条链：① 年龄链 ② 金额链 ③ 时长链 ④ 同属性取值链
     ⑤ 币种/口径链 ⑥ 汇总链。
+    - **🆕 2026-11-07 补充第 7、8 条链**（当晚 audit/lint/脚本全绿、飞书已送达，
+      仍靠通读抓到 10 类硬伤）：
+      ⑦ **薪资链**（月薪 × 12 = 年薪？同一人月薪 15000 却写年薪 30万 → 差 40%）；
+      ⑧ **同角色称呼链**（扩写段的「二儿子/老三」与主体段的「大儿子/二女儿/小儿子」
+      是不是同一个人？主体换称谓读者不一定察觉，但「老三说」出现在只有两个儿子的
+      家庭里就是硬伤）。
+      ⚠️ **同属性取值链要按「同一人物」分组比，不是整篇比** —— 整篇比会把故事A的
+      退休金 4800 与故事B的 3200 误报成冲突（2026-11-07 实测踩过）。
+      ⑨ **金句复读链**（同一句金句在 viewpoint/action/*_ending 里整句复读；
+      判定范围**必须含 `story_a_ending`/`story_b_ending`**，只扫 viewpoint+action 会漏 3 处）。
   - **通读主干 ≠ 读完**：整篇主干读下来仍可能漏 —— **扩写段落**是最容易藏
     「整个故事被换掉」的地方（正文主干看不出异常，拼接后才发现主角换了人）。
     扩写段落必须**单独读一遍**，并对照它对应的主体故事核人物。
@@ -1072,7 +1092,8 @@ Related case-detail references:
 - `content-platforms/references/topic-pool-rotation-and-length-engineering.md` — **content-quality failures that stay green**: pool sizing, LRU rotation, length assertions, `str.format()` silent-drop check (companion to the delivery-side references above)
 - `content-platforms/references/orphan-extensions-and-hand-arithmetic-audit.md` — **孤儿扩写 + 人工算账审计**：扩写段落整个换成另一个故事；自动化审计全绿但手工通读抓到 9 处硬伤。含 ORPHAN 检测规则的三次踩坑、通读要盯的 6 条链、批次替换原子性陷阱
 - `content-platforms/references/audit-tool-death-and-prompt-language.md` — **审计工具自己死了**（linter 连坏 2 晚，退出码被管道吞掉 →「全绿」是假的；「写了函数 ≠ 规则生效」）+ 配图提示词混中文 + 周期频次 vs 年度汇总。**跑审计工具必须单独看退出码**
-- `content-platforms/references/hook-promise-and-title-payoff-audit.md` — **钩子承诺不兑现（标题党翻车）**：钩子/标题承诺的画面、引语、数字正文一个字都没写 → 读者点进来想看的东西看不到。2026-11-06 实测 10/10 长文命中且全程绿灯。内容侧的「单字段自洽、跨字段失配查不到」盲区
+- `content-platforms/references/hook-promise-and-title-payoff-audit.md` — **钩子承诺不兑现（标题党翻车）**：钩子/标题承诺的画面、引语、数字正文一个字都没写 → 读者点进来想看的东西看不到。2026-11-06 实测 10/10 长文命中且全程绿灯。内容侧的「单字段自洽、跨字段失配查不到」盲区。**2026-11-07 已落地 `HOOK_PROMISE` 规则**（实测会 fire），并记录了规则自身「装配口径只认 story_* → 微头条池整池假阳性」的坑
+- `productivity/content-platforms/scripts/check_pool_type_false_positives.py` — **跨池型假阳性检测器**：给 linter 加完新规则后跑它，逐池把「命中项 + 该池正文字段」并排打出来供人工核对。退出码 2 = 装配不出正文 = 该池字段结构不匹配 = 假阳性来源。⚠️ 不要只看汇总数
 - `references/smtp-credential-failure-case-study.md` — full SMTP transcripts
 - `references/case-m-last-status-masking.md` — `last_status=ok` masking
 - `references/feishu-stale-thread-id-delivery-failure.md` — stale `omt_` thread_id

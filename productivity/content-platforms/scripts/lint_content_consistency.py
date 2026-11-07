@@ -89,6 +89,23 @@ EXT_ATTRS = ('STORY_EXTENSIONS', 'TOPIC_EXTENSIONS', 'STORY_EXTRAS')
 
 # ---------------------------------------------------------------- 数值解析
 
+# ── HOOK_PROMISE（2026-11-06）─────────────────────────────
+QUOTE_RE = re.compile(r"'([^']{2,80})'|\"([^\"]{2,80})\"|「([^」]{2,80})」|『([^』]{2,80})』")
+CJK_RE = re.compile(r'[\u4e00-\u9fff]')
+NUM_RE = re.compile(r'\d+(?:\.\d+)?')
+NUM_IGNORE = {'2024', '2025', '2026', '2027'}
+
+
+def _quotes(text):
+    """抽出引号内的中文引语片段（>=2 汉字）。"""
+    out = []
+    for a, b, c, d in QUOTE_RE.findall(text or ''):
+        q = a or b or c or d
+        if q and len(CJK_RE.findall(q)) >= 2:
+            out.append(q)
+    return out
+
+
 def _cn(s):
     """中文数字 → float（支持 十/百/千/万 与阿拉伯数字混排）。"""
     if not s:
@@ -705,6 +722,63 @@ def check_prompt_language(text):
     return issues
 
 
+def check_hook_promise(hook, title, body):
+    """钩子/标题承诺的引语与数字，必须在装配后的正文出现。
+
+    🔴 2026-11-06 实测新增的第八类缺陷：钩子承诺的具体场景/引语/数字，
+    正文经常一个字都没有 —— 读者点进来想看的画面看不到 = 标题党翻车。
+    当时 10 条长文**全部**命中，且 audit/lint/脚本全程绿灯。
+
+    ⚠️ body 必须是**装配后**的正文（含扩写段落），否则会误报。
+    """
+    issues = []
+    body = body or ''
+    src = (hook or '') + ' || ' + (title or '')
+
+    for q in _quotes(src):
+        if q not in body:
+            issues.append(('HOOK_PROMISE',
+                           f'钩子/标题承诺的引语「{q}」在正文里没有',
+                           q))
+
+    for n in NUM_RE.findall(src):
+        if n in NUM_IGNORE:
+            continue
+        if n not in body:
+            issues.append(('HOOK_PROMISE',
+                           f'钩子/标题出现的数字「{n}」在正文里没有',
+                           n))
+    return issues
+
+
+def _hook_promise_body(topic, ext):
+    """装配正文：按选题类型选对字段。
+
+    ⚠️ 只测 story_a 会误报 —— 很多兑现段写在扩写里。
+    ⚠️⚠️ 2026-11-07 修复：微头条池（MICRO_TOPICS_POOL）**没有 story_a/story_b**，
+    它的正文在 `content` 字段，钩子承诺的引语/数字落在 content + micro_dialogue 里。
+    原来只装配 story_* → 微头条被整池误报（实测 14 条假阳性，15 处命中里 14 处是假的）。
+    修法：有 content 就用 content（微头条），否则用 story_*（长文）。
+    """
+    def g(k):
+        return str(topic.get(k, '') or '')
+    # 微头条：正文在 content + micro_dialogue
+    if g('content'):
+        body = '\n'.join(x for x in (g('content'), g('micro_dialogue')) if x)
+        return body
+    # 长文：story_a + dialogue + ending + story_b + ending + 扩写
+    body = '\n'.join(x for x in (g('story_a'), g('story_a_dialogue'),
+                                  g('story_a_ending'), g('story_b'),
+                                  g('story_b_ending')) if x)
+    if ext:
+        ea, eb = _ext_pair(ext)
+        if ea:
+            body += '\n' + ea
+        if eb:
+            body += '\n' + eb
+    return body
+
+
 FIELD_CHECKERS = (check_sum_vs_total, check_fraction, check_period,
                   check_split_vs_sum, check_inherited_total,
                   check_period_total)
@@ -859,6 +933,16 @@ def lint(pools, extensions):
                     issues.append({'pool': pool_name, 'direction': direction,
                                    'field': fname, 'code': code,
                                    'message': msg, 'context': ctx.strip()})
+
+            # ⑤ 钩子/标题承诺兑现：引语与数字必须在装配后的正文出现
+            #    ⚠️ 2026-11-06 新增。必须接进主流程 ——
+            #    「写了函数」≠「规则生效」（ORPHAN 就是这么空转了两晚）。
+            hook_body = _hook_promise_body(t, ext)
+            for code, msg, ctx in check_hook_promise(
+                    t.get('hook', ''), t.get('title', ''), hook_body):
+                issues.append({'pool': pool_name, 'direction': direction,
+                               'field': '钩子/标题承诺', 'code': code,
+                               'message': msg, 'context': ctx.strip()})
     return issues
 
 
@@ -1041,6 +1125,26 @@ def _self_test():
     ok2 = check_periodic_vs_yearly('二儿子每个月来一次。今年二儿子来了12次。')
     if ok2:
         failed.append('正确的每月频次（12次）被误报为缺陷')
+
+    # ⑦ HOOK_PROMISE：钩子/标题承诺必须在正文兑现
+    ok = check_hook_promise(
+        "王阿姨说：'我老了，不想拖累你们。'",
+        "67岁老人被三个儿子轮流养老",
+        "王阿姨说：'我老了，不想拖累你们。'她今年67岁。")
+    if ok:
+        failed.append('正确兑现的钩子承诺被误报为缺陷')
+    bad = check_hook_promise(
+        "侄子发来一条消息，只有四个字：'大伯，我忙。'",
+        "63岁大伯给侄子出了20万学费",
+        "李大爷63岁，有个侄子叫小强。")
+    if not bad:
+        failed.append('钩子承诺的引语未在正文兑现，未被发现')
+    # 数字承诺（标题里的年龄）同样必须兑现
+    bad2 = check_hook_promise(
+        "他72岁，存了40万。", "72岁老人存了40万",
+        "老陈头62岁那年开始存钱。")
+    if not bad2:
+        failed.append('标题里的年龄/数字未在正文兑现，未被发现')
 
     if failed:
         print('❌ 解析器自检失败 —— 工具本身有问题，不是内容有问题：', file=sys.stderr)
