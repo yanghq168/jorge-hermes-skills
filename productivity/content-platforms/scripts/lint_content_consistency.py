@@ -95,6 +95,11 @@ CJK_RE = re.compile(r'[\u4e00-\u9fff]')
 NUM_RE = re.compile(r'\d+(?:\.\d+)?')
 NUM_IGNORE = {'2024', '2025', '2026', '2027'}
 
+# ── GOLDEN_ECHO（2026-11-08）─────────────────────────────
+# 金句与正文字段的公共子串长度阈值。低于 10 字多为常见词组（如「不是孝顺」）
+# 会产生假阳性；实测 10–14 字区间仍有少量自然重叠，故取 10。
+GOLDEN_ECHO_MINLEN = 10
+
 
 def _quotes(text):
     """抽出引号内的中文引语片段（>=2 汉字）。"""
@@ -779,6 +784,77 @@ def _hook_promise_body(topic, ext):
     return body
 
 
+def check_golden_echo(topic, ext):
+    """🔴 GOLDEN_ECHO：同一句金句在正文里被整句复读。
+
+    2026-11-08 实测新增的第九类缺陷（跨字段失配的又一个变体）：
+    `golden1/2/3` 既是「金句卡」的内容来源，又是「3个金句（截图转发用）」区的
+    内容 —— 若它们同时被 viewpoint / action / story_*_ending 整句复读，
+    读者在同一篇里会看到同一段话连说两遍。
+
+    ⚠️ 2026-11-08 实测数据：14 条长文命中 27 处（阈值 ≥10 字），
+    而 audit / lint / 脚本全程绿灯 —— 现有规则查「单字段内的算式」，
+    查不到「同一句在两个字段之间重复」。
+
+    判定口径：golden 句与正文任一字段存在 ≥ GOLDEN_ECHO_MINLEN 字的
+    **连续公共中文子串**即报。取最长公共子串做提示，便于人工核对。
+    """
+    issues = []
+    minlen = GOLDEN_ECHO_MINLEN
+
+    def cjk(s):
+        return ''.join(re.findall(r'[一-鿿]', s or ''))
+
+    def longest_common(a, b, minlen):
+        """返回 a、b 的最长公共连续子串（>= minlen），没有则返回 ''。"""
+        if not a or not b or len(a) < minlen:
+            return ''
+        best = ''
+        for i in range(len(a) - minlen + 1):
+            sub = a[i:i + minlen]
+            if sub not in b:
+                continue
+            k = minlen
+            while i + k < len(a) and a[i:i + k + 1] in b:
+                k += 1
+            if k > len(best):
+                best = a[i:i + k]
+        return best
+
+    def g(k):
+        return str(topic.get(k, '') or '')
+
+    # ⚠️ 池型分叉：微头条池没有 golden1/2/3，直接跳过（否则整池假阳性）。
+    if not (g('golden1') or g('golden2') or g('golden3')):
+        return issues
+
+    ea, eb = _ext_pair(ext) if ext else ('', '')
+    body_fields = {
+        'story_a': g('story_a'),
+        'story_a_dialogue': g('story_a_dialogue'),
+        'story_a_ending': g('story_a_ending'),
+        'story_b': g('story_b'),
+        'story_b_ending': g('story_b_ending'),
+        'viewpoint': g('viewpoint'),
+        'action': g('action'),
+        '故事A扩写': ea,
+        '故事B扩写': eb,
+    }
+    for gk in ('golden1', 'golden2', 'golden3'):
+        gc = cjk(g(gk))
+        if len(gc) < minlen:
+            continue
+        for fname, ftext in body_fields.items():
+            if not ftext:
+                continue
+            run = longest_common(gc, cjk(ftext), minlen)
+            if run:
+                issues.append(('GOLDEN_ECHO',
+                               f'金句 {gk} 在「{fname}」里被整句复读：{run}',
+                               run))
+    return issues
+
+
 FIELD_CHECKERS = (check_sum_vs_total, check_fraction, check_period,
                   check_split_vs_sum, check_inherited_total,
                   check_period_total)
@@ -942,6 +1018,14 @@ def lint(pools, extensions):
                     t.get('hook', ''), t.get('title', ''), hook_body):
                 issues.append({'pool': pool_name, 'direction': direction,
                                'field': '钩子/标题承诺', 'code': code,
+                               'message': msg, 'context': ctx.strip()})
+
+            # ⑥ 金句复读：golden1/2/3 被 viewpoint/action/ending 整句复读
+            #    ⚠️ 2026-11-08 新增。必须接进主流程 ——
+            #    「写了函数」≠「规则生效」（ORPHAN 空转两晚、HOOK_PROMISE 空转一天）。
+            for code, msg, ctx in check_golden_echo(t, ext):
+                issues.append({'pool': pool_name, 'direction': direction,
+                               'field': '金句复读', 'code': code,
                                'message': msg, 'context': ctx.strip()})
     return issues
 
@@ -1145,6 +1229,42 @@ def _self_test():
         "老陈头62岁那年开始存钱。")
     if not bad2:
         failed.append('标题里的年龄/数字未在正文兑现，未被发现')
+
+    # ⑧ GOLDEN_ECHO：同一句金句在正文里被整句复读
+    #    正例不报：金句与正文各说各的
+    ok = check_golden_echo(
+        {'golden1': '钱是流水，房子是根。钱花完就没了。',
+         'golden2': '孝顺分两种：给钱的孝顺让你饿不死。',
+         'golden3': '我不把后半辈子押在一个不能到场的人身上。',
+         'viewpoint': '子女不在身边，不是孩子的错。',
+         'action': '算清楚每月缺口，别全靠汇款。'},
+        None)
+    if ok:
+        failed.append('没有复读的金句被误报为缺陷')
+    # 反例必报：golden2 被 viewpoint 整句复读
+    bad = check_golden_echo(
+        {'golden1': '钱是流水，房子是根。',
+         'golden2': '孝顺分两种：给钱的孝顺让你饿不死，到场的孝顺让你不孤单。',
+         'golden3': '我不把后半辈子押在一个不能到场的人身上。',
+         'viewpoint': '孝顺分两种：给钱的孝顺让你饿不死，到场的孝顺让你不孤单。',
+         'action': '算清楚每月缺口。'},
+        None)
+    if not bad:
+        failed.append('金句被 viewpoint 整句复读，未被发现')
+    # 反例必报：golden3 被 action 复读
+    bad2 = check_golden_echo(
+        {'golden1': '钱是流水，房子是根。',
+         'golden2': '孝顺分两种：给钱的孝顺让你饿不死。',
+         'golden3': '我不把后半辈子押在一个不能到场的人身上。这不是不孝，是给自己留条活路。',
+         'viewpoint': '子女不在身边，不是孩子的错。',
+         'action': '我不把后半辈子押在一个不能到场的人身上。这不是不孝，是给自己留条活路。'},
+        None)
+    if not bad2:
+        failed.append('金句被 action 整句复读，未被发现')
+    # ⚠️ 池型分叉：微头条池没有 golden1/2/3 → 不得整池假阳性
+    if check_golden_echo({'title': '微头条标题', 'content': '这是一条微头条正文。',
+                          'micro_dialogue': '弟弟说：我不是不帮。'}, None):
+        failed.append('微头条池（无 golden 字段）被误报为金句复读')
 
     if failed:
         print('❌ 解析器自检失败 —— 工具本身有问题，不是内容有问题：', file=sys.stderr)

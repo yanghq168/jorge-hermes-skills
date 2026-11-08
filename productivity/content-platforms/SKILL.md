@@ -52,11 +52,12 @@ cronjob (定时)
 - **`references/content-self-consistency-checking.md`** — **内容自洽性（缺陷五）详解**：数字算不通、角色凭空多出 —— 审计工具测不出的第五类失败模式。含 6 处实录、根因（选题池 + 扩写段落多处拼接）、A/B 单元切分、中文金额口语缩写解析陷阱、与 Case R 的关系
 - **`references/orphan-extensions-and-hand-arithmetic-audit.md`** — **孤儿扩写 + 人工算账审计**：扩写段落整个换成另一个故事；自动化审计全绿但手工通读抓到 9 处硬伤。含 ORPHAN 检测规则的三次踩坑（不能按频次判主角 / 不能拿整篇比 / 人名抽取太贪婪）、通读要盯的 6 条链、**批次替换原子性陷阱**（一条失败会丢弃整批成功编辑）、给 linter 加规则的自检纪律
 - **`references/hook-promise-and-title-payoff-audit.md`** — **缺陷八「钩子承诺不兑现」**：钩子/标题承诺的具体场景、引语、数字，正文一个字都没写 → 读者点进来想看的画面看不到 = **标题党翻车**。2026-11-06 实测 **10/10 长文全部命中**，且全程绿灯（audit exit 0 + linter exit 0 + 飞书已送达）。含 10 条选题的实测矩阵、只查「可客观验证」的承诺口径（引语 / 数字 / 年龄链）、**修法要写进正文而不是把钩子写软**、兑现段放哪里、`HOOK_PROMISE` 规则的完整契约（函数签名 + 必须接进 `lint()` + `_self_test()` 两条算例）、以及「中文间误插空格」的全库扫描 grep。**2026-11-07 已落地**（`HOOK_PROMISE` 已接入 linter 并实测会 fire），并记录了规则自身「装配口径只认 story_*、导致微头条池整池假阳性」的坑 —— 见下方「新增检查器的三步验证」
+- **`references/golden-echo-and-label-provenance-audit.md`** — **缺陷九「金句复读」+「金句标签对不上实际出处」**：同一句金句在 viewpoint/action/结局里被整句复读 → 读者在同一篇里看到同一段话连说两遍；且模板把 `golden1/2/3` 标成【故事A结尾】/【故事B结尾】/【文章结尾】，但金句是按**池槽位**写的、不是按**实际出处**写的 —— 14 条长文实测 **0 条**真落在标注位置。2026-11-08 实测 14 条长文命中 **27 处**（阈值 ≥10 字公共中文子串），而 audit/lint/脚本**全程绿灯**。含完整实测矩阵（8 个方向 × 复读位置 × 复读片段）、**最长公共子串检测法**（含阈值取 10 的理由）、判定范围必须覆盖 `story_a_ending`/`story_b_ending`（只扫 viewpoint+action 会漏一半）、**修法是改金句不是改正文**（金句卡是提炼物）、重新指派 golden1/2/3 时要连 viewpoint/action 一起改（否则只是把复读从一处搬到另一处）、`GOLDEN_ECHO` 规则的完整契约（三条自检算例 + 池型分叉）、以及「摘要卡 + 正文」型内容产品的通用教训。**2026-11-08 已落地**（`GOLDEN_ECHO` 已接入 linter 并实测会 fire）
 - **`references/audit-tool-death-and-prompt-language.md`** — **缺陷七：审计工具自己死了**（linter 连续 2 晚崩在自检上却因退出码语义混淆而没被发现；「写了函数 ≠ 规则生效」）+ **配图提示词混中文**（会渲染成乱码汉字，新增 `PROMPT_HAS_CJK`）+ **周期频次 vs 年度汇总**（新增 `PERIODIC_VS_YEARLY`）。含「跑审计工具必须单独看退出码，不能看管道里 tail 的」硬规则
 - **`scripts/apply_hook_promise.py`** — **HOOK_PROMISE 规则落地补丁**（2026-11-06 新增，**2026-11-07 已应用到 linter**）：把 `check_hook_promise()` + `_hook_promise_body()` + `lint()` 调用点 + `_self_test()` 算例**一次性注入** `lint_content_consistency.py`。用法：`python3 apply_hook_promise.py <lint_content_consistency.py>` → `py_compile` → 跑 linter 单独看退出码。**已实测会 fire**（断言 exit 1 + 报出 `HOOK_PROMISE`）。⚠️ 落地后发现规则自身的**装配口径只认 `story_*` 字段** → 微头条池（正文在 `content`）整池假阳性（15 处命中里 14 处是假的），已修（见 `_hook_promise_body()` 现在的 `if g('content')` 分叉）。**新注入的补丁要再跑一遍「跨池型不误报」验证**（见下方「新增检查器的三步验证」）。规则设计与实测矩阵见 `references/hook-promise-and-title-payoff-audit.md`
 - **`scripts/audit_rendered_article.py`** — **产物审计脚本（通用）**：一条命令量出已渲染 HTML 的正文中文字数、结构完整性（故事A·对话/结局、故事B·结局、观点、行动、金句）、配图提示词数与 `no text` 约束、话题标签数、微头条 `content` 字数是否落在 [150,250]。`--pool <content_script.py>` 顺便核对选题池；`--json` 机器可读。改完生成器后必跑，别手写正则数字数
 - **`scripts/check_pool_type_false_positives.py`** — **跨池型假阳性检测器（2026-11-07 新增）**：给 linter 加完新规则后跑它，逐池把「命中项 + 该池正文字段」并排打出来供人工核对。起因：`HOOK_PROMISE` 落地后 15 处命中里 **14 处是假阳性** —— 微头条池正文在 `content`，而规则的装配函数只认 `story_*` → 微头条正文被装配成空串。用法：`python3 check_pool_type_false_positives.py --pool <生成器.py> --extensions <扩写.py> [--json]`；退出码 0=跑完 / **2=装配不出正文（该池字段结构与 body_for() 不匹配 = 假阳性来源）**。⚠️ **不要只看汇总数**（15 实际只有 1 个真缺陷）—— 必须逐条核对
-- **`scripts/lint_content_consistency.py`** — **内容自洽性 lint（通用）**：查数字算不算得通、角色存不存在。`audit_rendered_article.py` 测不出算术错误与凭空多出的角色（这类缺陷全程绿灯，读者一按计算器就穿帮）。检查码：`SUM_EXCEEDS_FEE`/`SUM_VS_HALF_CLAIM`/`SPLIT_VS_TOTAL`/`FRACTION_MISMATCH`/`PERIOD_MONTH_YEAR`/`CONTRIB_VS_FEE`/`PHANTOM_SON`/`FREQ_CONFLICT`/`PERIODIC_VS_COUNT`，以及 2026-11-04 新增的 `SPLIT_SUM_VS_INHERITED_TOTAL`（分家之和≠声明总额）/`PERIOD_TOTAL_VS_SEGMENTS`（合计月数≠各段之和）/`CARE_COST_VS_MONTHS`（护工月费×月数≠实付）/`ORPHAN_CHARACTER`（扩写段落出现主体故事没有的人物），2026-11-05 新增的 `PROMPT_HAS_CJK`（配图提示词混入中文→生图乱码）/`PERIODIC_VS_YEARLY`（周期频次≠年度汇总次数），2026-11-07 新增并接进 `lint()` 的 `HOOK_PROMISE`（钩子/标题承诺的引语与数字必须在正文兑现）。`--pool <script.py>`、`--extensions <ext.py>`、`--json`；退出码 0=干净 / 1=内容有问题 / **2=工具自检失败（工具坏了，不是内容坏了）**。**改完生成器/扩写段落必跑**；新增规则时**必须**在 `_self_test()` 里配「正例不报 + 反例必报」两条算例，**且必须实测规则会 fire**（造真实反例断言 exit 1）—— 只跑干净内容 exit 0 证明不了规则接上了；**还要跑「跨池型不误报」**（`scripts/check_pool_type_false_positives.py`；微头条池与长文池字段结构不同，装配口径必须分叉）。**跑完必须单独看退出码**（别用管道吞掉它），详见 `references/audit-tool-death-and-prompt-language.md`
+- **`scripts/lint_content_consistency.py`** — **内容自洽性 lint（通用）**：查数字算不算得通、角色存不存在。`audit_rendered_article.py` 测不出算术错误与凭空多出的角色（这类缺陷全程绿灯，读者一按计算器就穿帮）。检查码：`SUM_EXCEEDS_FEE`/`SUM_VS_HALF_CLAIM`/`SPLIT_VS_TOTAL`/`FRACTION_MISMATCH`/`PERIOD_MONTH_YEAR`/`CONTRIB_VS_FEE`/`PHANTOM_SON`/`FREQ_CONFLICT`/`PERIODIC_VS_COUNT`，以及 2026-11-04 新增的 `SPLIT_SUM_VS_INHERITED_TOTAL`（分家之和≠声明总额）/`PERIOD_TOTAL_VS_SEGMENTS`（合计月数≠各段之和）/`CARE_COST_VS_MONTHS`（护工月费×月数≠实付）/`ORPHAN_CHARACTER`（扩写段落出现主体故事没有的人物），2026-11-05 新增的 `PROMPT_HAS_CJK`（配图提示词混入中文→生图乱码）/`PERIODIC_VS_YEARLY`（周期频次≠年度汇总次数），2026-11-07 新增并接进 `lint()` 的 `HOOK_PROMISE`（钩子/标题承诺的引语与数字必须在正文兑现），2026-11-08 新增并接进 `lint()` 的 `GOLDEN_ECHO`（金句 `golden1/2/3` 被 viewpoint/action/ending 整句复读）。`--pool <script.py>`、`--extensions <ext.py>`、`--json`；退出码 0=干净 / 1=内容有问题 / **2=工具自检失败（工具坏了，不是内容坏了）**。**改完生成器/扩写段落必跑**；新增规则时**必须**在 `_self_test()` 里配「正例不报 + 反例必报」两条算例，**且必须实测规则会 fire**（造真实反例断言 exit 1）—— 只跑干净内容 exit 0 证明不了规则接上了；**还要跑「跨池型不误报」**（`scripts/check_pool_type_false_positives.py`；微头条池与长文池字段结构不同，装配口径必须分叉）。**跑完必须单独看退出码**（别用管道吞掉它），详见 `references/audit-tool-death-and-prompt-language.md`
 - `references/xhs-travel-guide-sample.md` — 小红书旅游攻略参考实现
 - `references/xhs-travel-script-identifier.md` — **两个旅游脚本辨析**：`xhs-travel-daily.py`（主，23:00）vs `xiaohongshu-travel-daily.py`（旧，已停用）+ shell转义踩坑
 - `references/dedup-visited-destinations.md` — 小红书旅游脚本景点去重机制：_pick_unvisited()实现、追踪文件、循环覆盖逻辑
@@ -340,7 +341,16 @@ for item in items:
     和故事B的 3200 误报成冲突（2026-11-07 实测踩过）。
   - **🆕 「金句复读链」**（2026-11-07 实测 6 个方向共 13 处）：同一句金句在 `viewpoint`/`action`/`*_ending`
     里整句复读，读者看到同一句话连说两遍。判定范围**必须含 `story_a_ending`/`story_b_ending`** ——
-    只扫 viewpoint+action 会漏掉 3 处。
+    只扫 viewpoint+action 会漏掉 3 处。**2026-11-08 已落地为永久规则 `GOLDEN_ECHO`**
+    （阈值 ≥10 字公共中文子串，实测 14 条长文命中 27 处），详见
+    `references/golden-echo-and-label-provenance-audit.md`。
+  - **🆕 「同角色称呼链」是按方向逐个修的 —— 修了一个方向 ≠ 全池修完**（2026-11-08 实测）：
+    11-07 会话修了**兄弟姐妹**方向 ext_b 的「老三」→「二女儿/小儿子」，
+    却**漏了赡养义务**方向的同类冲突（ext_b 用「老三」指代主体的「小儿子」，
+    而主体 `story_b` 明确是「大儿子/二儿子/小儿子」三个儿子）→ 11-08 补修。
+    **规则：每次改某一方向的称呼冲突，必须回头扫一遍**其它方向的扩写段落**
+    —— 扩写段落是最容易藏「人物换了/称呼变了/数字对不上」的地方，
+    且每条扩写必须**单独读一遍**（主干读下来看不出异常）。
   - **改源码时的批次原子性陷阱**：一次批量替换里**只要有一条匹配失败，实现若写成「全部成功才落盘」，已成功的编辑会被一起丢弃**。2026-11-04 实测 16 条中 5 条匹配失败 → 11 条成功编辑全丢，得重做。**规则：逐条落盘**（每条成功立即写文件，失败的单独报告不回滚）；匹配失败时先 `src.find(key)` 打印实际源文本再改，别猜原文；改完跑 `py_compile` 三个源文件。
   - **给 linter 加新规则时，必须在 `_self_test()` 里配「正例不报 + 反例必报」两条算例**，否则你不知道规则本身对不对（本次新增 3 条规则，第一次跑就 4 条自检失败）。**退出码语义不变**：0=内容干净 / 1=内容有问题 / **2=工具自己坏了**。自检失败时**先看自检输出再动文案** —— 绝不能因为「规则报了假阳性」就去改本来写对的文案。
 - **🔴🔴 审计工具自己死了，但没人发现 —— 因为退出码语义被管道吞了（2026-11-05 实测，连坏 2 晚）**：`lint_content_consistency.py` 从 11-04 起**每次都崩在自检上**（`NameError: check_orphan_character` 未定义），而且 ORPHAN 规则**从未接入 `lint()`** —— 加了函数、写了自检，却忘了挂到主流程。于是 11-04、11-05 两晚的「linter 全绿」是**假的**，根本没跑到检查。
@@ -379,6 +389,8 @@ for item in items:
   给 linter 加规则时，本技能此前只要求两步：**① 正例不报（exit 0）+ ② 反例必报（exit 1）**。
   2026-11-07 落地 `HOOK_PROMISE` 时，这两步**都过了**（自检算例通过、真实反例确实 fire），
   **但规则立刻产生了 14 处假阳性**：15 处命中里，只有 1 处是真缺陷。
+  - **2026-11-08 落地 `GOLDEN_ECHO` 时已按三步走**：① 自检三算例（正例不报 + 反例必报 + **微头条池不误报**）
+    全绿 → ② 造临时 pool 断言 **exit 1 且报出 `GOLDEN_ECHO`** → ③ 对微头条池跑一遍确认 0 假阳性。
   - **根因**：`_hook_promise_body()` 只装配 `story_a`/`story_a_dialogue`/`story_a_ending`/`story_b`/`story_b_ending` + 扩写。
     但**微头条池（`MICRO_TOPICS_POOL`）根本没有这些字段** —— 它的正文在 `content` + `micro_dialogue`。
     微头条的「正文」被装配成空串 → 钩子/标题里的每个数字都判成「未兑现」。
@@ -390,12 +402,14 @@ for item in items:
     微头条池与长文池**字段结构完全不同**（`content` vs `story_a`/`story_b`），
     而 linter 里早就有处理这个分叉的 `_units_for()` —— **新增装配函数前先看有没有现成的池型分叉助手，优先复用**。
     自造第二套装配逻辑 = 迟早与主流程漂移。
-- **🔴 「金句复读」目前无人查，全靠人工发现（2026-11-07 待补规则 `GOLDEN_ECHO`）**：
-  同一句金句在 `viewpoint`/`action`/`*_ending` 里**整句复读**，读者会看到同一句话连说两遍。
-  2026-11-07 实测 6 个方向共 **13 处**。判定口径：`golden1/2/3` 按句号切成 ≥10 字的句子，
-  断言不出现在 `viewpoint`/`action`/`story_a_ending`/`story_b_ending` 中。
-  ⚠️ 判定范围必须覆盖 **`story_a_ending`/`story_b_ending`** —— 本例最初只扫 `viewpoint`+`action`，
-  扩到 ending 后又多抓出 3 处（养老院/远居赡养/房产纠纷）。
+- **🔴 「金句复读」已有人查 —— 规则 `GOLDEN_ECHO`（2026-11-08 落地并实测会 fire）**：同一句金句在 `viewpoint`/`action`/`*_ending` 里**整句复读**，读者在同一篇里看到同一段话连说两遍。2026-11-08 实测 14 条长文命中 **27 处**（阈值 ≥10 字公共中文子串），而 audit/lint/脚本**全程绿灯**。
+    - 判定口径：golden 句与「装配后正文字段」存在 ≥10 字**连续公共中文子串**即报（`GOLDEN_ECHO_MINLEN = 10`）。
+    - ⚠️ 判定范围**必须覆盖 `story_a_ending`/`story_b_ending`** —— 只扫 viewpoint+action 会漏掉一半（`golden3` 常出自故事B结尾）。
+    - ⚠️ **池型分叉**：微头条池没有 `golden1/2/3` → 必须直接返回 `[]`，否则整池假阳性（与 `HOOK_PROMISE` 同一个坑）。
+    - **修法是改金句，不是改正文** —— 金句卡是提炼物，正文是叙事主体；改正文会毁掉正文节奏。
+    - ⚠️ 重新指派 golden1/2/3 时**要连 viewpoint/action 一起改**，否则复读只是从一处搬到另一处。
+    - 🆕 **更根本的缺陷：金句的「标签」与「实际出处」对不上** —— 模板把 `golden1/2/3` 标成【故事A结尾】/【故事B结尾】/【文章结尾】，但金句是按**池槽位**写的、不是按**实际出处**写的。14 条长文实测 **0 条**真落在标注位置（远居赡养 golden1 实际出自故事B，却被标成「故事A结尾」）。标签是**会被渲染给读者看的**，不是注释。
+    - 完整实测矩阵、检测代码、修法与契约 → `references/golden-echo-and-label-provenance-audit.md`
 - **⚠️ 批量改文案时 anchor 必须用「最小唯一片段」（2026-11-07 再次验证）**：
   本轮 20+ 处编辑全部用「逐条 assert count==1 → 立即 replace」的单条落盘写法（避免「全部成功才落盘」
   把已成功的编辑一起丢弃）。两次 assert 失败都是因为**照抄记忆里的锚点多了/少了一个字**

@@ -423,16 +423,39 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
 - **🔴 Do the README append EARLY, not last (2026-11-05, a session got cut off).**
   A cron session hit its tool-call limit *after* the content fixes and verification
   but *before* the README append and the outbox prune — the two terminal actions.
-  The fixes landed in the source (good), but the cross-session outage log skipped a
-  night, so the next session's "第N天" counter was wrong and the README had no
+  The fixes landed in the source (good), but the cross-session outage log skipped
+  a night, so the next session's "第N天" counter was wrong and the README had no
   record of the linter repair.
   **Rule: for a chronic-outage cron, append the README entry and prune the outbox
   EARLY in the session** (right after confirming delivery), not as cleanup at the end.
-  The audit/fix work is the part that can be cut off; the persistence step must not
-  be. If you suspect you're near a limit, write the README entry first and treat any
+  The audit/fix work is the part that can be cut off; the persistence step must not be.
+  If you suspect you're near a limit, write the README entry first and treat any
   remaining analysis as a bonus.
   Also note the README heading count is the verification: `grep -c "^## "` must go up
   by exactly 1 per session — if it didn't, the entry was never written.
+  - **🆕 2026-11-08 复现：这是第二次因会话被截断而漏记 —— 而且漏的不止一夜。**
+    11-07 会话被工具调用上限截断，没能追加 README；11-08 会话开头发现
+    README 最后一条是 11-06（**第74天**），而 11-07（第75天）**整夜缺失**。
+    处理方式：按上面「backfill EVERY gap night」补记 11-07，并追加 11-08。
+    **标题数 31 → 33**（= 1 + 1 个补记夜），已用 `grep -c "^## "` 核验。
+    - **实操顺序（2026-11-08 会话验证有效）**：
+      ① 先确认当晚产物与送达（读 outbox + `_verify_feishu_msg.py` 回查 `message_id`）
+      → ② **立刻**补记 README（回填所有缺口夜 + 追加今晚）
+      → ③ 再做内容审计与修复 → ④ 最后清理 outbox。
+      把 README 放在修复之前，是因为修复最容易耗尽工具调用额度。
+    - **⚠️ 补记时的取数纪律**：事实**必须从产物取**，不能凭记忆 ——
+      标题/方向从 `outbox/<platform>/YYYYMMDD_HHMM_<direction>.html` 的 banner 取，
+      失败原因从对应的 `STANDBY_YYYYMMDD.txt` 取，
+      飞书 `message_id` 从 scheduler 输出日志（`~/.hermes/cron/output/<job_id>/*.md`）
+      或 `STANDBY` 文件里抠 —— **不要重跑脚本去「重新拿一个 ID」**（会产生第二份产物）。
+      本次补记 11-07 时，`message_id=om_x100b61c5d22b40a8c1ea4391e128090`
+      就是从 11-07 的 `STANDBY_20261107.txt` 取的，再用 `_verify_feishu_msg.py` 回查确认
+      `file_name=20261107_2030_亲戚恩怨.html` —— **补记不等于抄旧结论，要重新回查**。
+    - **⚠️ 用 `execute_code` 读写 README 时注意行号前缀**：本会话用
+      `read_file()` 读回来的是 `行号|内容` 格式，直接拼接会把行号写进文件。
+      **必须先剥掉 `^\d+\|` 前缀再落盘**，写完再 `grep -c "^## "` 核验标题数。
+      另注：写入长中文段落要检查有没有产生**乱码字符**（本次有一处 `五六���`
+      被写进文件，靠 `grep` 发现后补修）—— 落盘后扫一遍非正常字符。
 
 - **⚠️ Case K ("IP-level AUTH block") is NOT reproducible on this deployment — never cite
   it without a fresh raw-socket control test.** Originally "discovered" 2026-09-11 (failure
@@ -911,6 +934,27 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   Note the log line shows the **redirect target** (`>> .../logs/<script>.log`), so the
   same log file is the place to read the night's stdout/stderr without re-running
   anything.
+- **✅✅ The session's job is a REPORT, not a run — verify the four signals in one
+  pass, then spend the remaining budget on the product (2026-11-08 实测有效).**
+  For a classic-cron-fired content cron, the reporting session should open with a
+  **single combined check** rather than one probe at a time. The 2026-11-08 session
+  did exactly this and never re-ran the script:
+  ```bash
+  # ① 当晚是否已跑（syslog 只看今天这一行）+ 产物是否已落盘
+  grep "toutiao-article-daily" /var/log/syslog | grep "$(date +%Y-%m-%d)"
+  ls -la --time-style=full-iso ~/.hermes/cron/outbox/toutiao/ | grep "$(date +%Y%m%d)"
+  # ② 脚本自己的日志尾部（一次看到「选题 + 失败原因 + 落盘路径 + message_id」）
+  tail -40 ~/.hermes/cron/logs/toutiao-article-daily.log
+  # ③ 备用通道是否真的送达（抠出 message_id 回查，不要重跑脚本去拿）
+  python3 ~/.hermes/cron/scripts/_verify_feishu_msg.py <message_id>
+  # ④ 产物本身过一遍审计（注意单独看退出码，别用管道吞掉）
+  python3 ~/.hermes/skills/productivity/content-platforms/scripts/audit_rendered_article.py <html> --pool <pool>
+  ```
+  **信号①里的 `message_id` 已经出现在脚本日志尾部** —— 不用重跑脚本就能拿到它。
+  把它回查确认（`msg_type` / `deleted` / `file_name` 三项）才算「送达」，
+  然后才把剩余预算花在**通读 + 修复**上。
+  ⚠️ 这套顺序的价值在于：把「跑没跑/送没送到」（便宜、确定）先钉死，
+  剩下的额度全部用于「内容对不对」（贵、才是真正需要 agent 智力的部分）。
 
 ## Cross-reference: known recurring outage
 
@@ -1093,6 +1137,7 @@ Related case-detail references:
 - `content-platforms/references/orphan-extensions-and-hand-arithmetic-audit.md` — **孤儿扩写 + 人工算账审计**：扩写段落整个换成另一个故事；自动化审计全绿但手工通读抓到 9 处硬伤。含 ORPHAN 检测规则的三次踩坑、通读要盯的 6 条链、批次替换原子性陷阱
 - `content-platforms/references/audit-tool-death-and-prompt-language.md` — **审计工具自己死了**（linter 连坏 2 晚，退出码被管道吞掉 →「全绿」是假的；「写了函数 ≠ 规则生效」）+ 配图提示词混中文 + 周期频次 vs 年度汇总。**跑审计工具必须单独看退出码**
 - `content-platforms/references/hook-promise-and-title-payoff-audit.md` — **钩子承诺不兑现（标题党翻车）**：钩子/标题承诺的画面、引语、数字正文一个字都没写 → 读者点进来想看的东西看不到。2026-11-06 实测 10/10 长文命中且全程绿灯。内容侧的「单字段自洽、跨字段失配查不到」盲区。**2026-11-07 已落地 `HOOK_PROMISE` 规则**（实测会 fire），并记录了规则自身「装配口径只认 story_* → 微头条池整池假阳性」的坑
+- `content-platforms/references/golden-echo-and-label-provenance-audit.md` — **金句复读 + 金句标签对不上实际出处（第九类跨字段失配）**：同一句金句在 viewpoint/action/结局里被整句复读 → 读者在同一篇里看到同一段话连说两遍；且模板把 `golden1/2/3` 标成【故事A结尾】/【故事B结尾】/【文章结尾】，但金句是按**池槽位**写的、不是按**实际出处**写的 —— 14 条长文实测 0 条真落在标注位置。2026-11-08 实测命中 27 处，全程绿灯。**2026-11-08 已落地 `GOLDEN_ECHO` 规则**（实测会 fire）。通用教训：「摘要卡 + 正文」型结构天然产生复读缺陷，规则要按「跨字段重复」查而不是按「字段内自洽」查
 - `productivity/content-platforms/scripts/check_pool_type_false_positives.py` — **跨池型假阳性检测器**：给 linter 加完新规则后跑它，逐池把「命中项 + 该池正文字段」并排打出来供人工核对。退出码 2 = 装配不出正文 = 该池字段结构不匹配 = 假阳性来源。⚠️ 不要只看汇总数
 - `references/smtp-credential-failure-case-study.md` — full SMTP transcripts
 - `references/case-m-last-status-masking.md` — `last_status=ok` masking
