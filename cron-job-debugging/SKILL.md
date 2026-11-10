@@ -975,6 +975,25 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   字数区间只有渲染后 `audit_rendered_article.py --pool` 才看得到 —— **但那要等下次跑脚本**。
   **规则：改任何池条目后，立刻重新量该条 CJK 字数**（微头条 150–250），别等渲染。
   同源纪律见 `content-platforms` 技能（同日新增的「锚点两个坑」条目）。
+- **⚠️ 2026-11-10 实测：`lint_content_consistency.py --pool` 指向错文件会 exit 2（参数用错，不是内容有问题）**。
+  `--pool` 必须指向**生成器脚本本身**（`toutiao-article-daily.py`），指向池数据文件
+  （`toutiao_topics_extra.py` 或 JSON）→ **exit 2**。
+  **exit 2 与 exit 1 语义完全相反**：exit 1 = 内容有问题（去改文案），
+  exit 2 = 工具/参数用错（去看 stderr，**别去改文案**）。
+  今晚差点因为 exit 2 去「修」本来正确的文案。先看 stderr 确认是哪一种再动手。
+- **⚠️ 2026-11-10 实测：多批修复时，「已改源码但未复渲染验证」必须写进报告，不能当作已完成**。
+  今晚 10 处内容硬伤分批修；最后一批（改掉「烧本子」在 `story_a_ending` 与 `ext_a` 的重复叙述）
+  **源码已写入且 `py_compile` 通过，但最终 harness 复渲染与复核因工具额度到顶没跑完**。
+  - **规则：会话里如果有**多批**修复，把第一批在会话早期就完整验证并落盘**；
+    跨会话的批次**必须在报告里明确写「本批未复渲染验证，明晚首跑后确认」**，并附上确切的复核命令：
+    ```bash
+    python3 ~/.hermes/skills/productivity/content-platforms/scripts/audit_rendered_article.py \
+      ~/.hermes/cron/outbox/toutiao/<明晚产物>.html \
+      --pool ~/.hermes/cron/scripts/toutiao-article-daily.py
+    ```
+  - **不要让「改了但没验证」的状态被后续会话当成「已验证」** —— 下一晚会读 README/报告；
+    如果它写「已修复」而实际未验证，缺陷会被当成已闭合而永远不再查。
+  - ⚠️ 验证时**退出码要单独看**，别用管道吞掉（`audit_rendered_article.py` exit 0=干净 / 1=有问题）。
 
 ## Cross-reference: known recurring outage
 
@@ -1157,6 +1176,7 @@ Related case-detail references:
 - `content-platforms/references/orphan-extensions-and-hand-arithmetic-audit.md` — **孤儿扩写 + 人工算账审计**：扩写段落整个换成另一个故事；自动化审计全绿但手工通读抓到 9 处硬伤。含 ORPHAN 检测规则的三次踩坑、通读要盯的 6 条链、批次替换原子性陷阱
 - `content-platforms/references/audit-tool-death-and-prompt-language.md` — **审计工具自己死了**（linter 连坏 2 晚，退出码被管道吞掉 →「全绿」是假的；「写了函数 ≠ 规则生效」）+ 配图提示词混中文 + 周期频次 vs 年度汇总。**跑审计工具必须单独看退出码**
 - `content-platforms/references/hook-promise-and-title-payoff-audit.md` — **钩子承诺不兑现（标题党翻车）**：钩子/标题承诺的画面、引语、数字正文一个字都没写 → 读者点进来想看的东西看不到。2026-11-06 实测 10/10 长文命中且全程绿灯。内容侧的「单字段自洽、跨字段失配查不到」盲区。**2026-11-07 已落地 `HOOK_PROMISE` 规则**（实测会 fire），并记录了规则自身「装配口径只认 story_* → 微头条池整池假阳性」的坑
+- `content-platforms/references/character-lifecycle-and-timeline-chain-audit.md` — **缺陷十一「人物生死状态链断裂」+ 缺陷十二「时间线链打架」**：已故角色仍在对话里说话（死人复活）、同一事件两个时点（丧事当天 vs 三个月后）。2026-11-10 实测，audit/lint/脚本全绿 + 飞书已送达仍靠通读抓到 10 处硬伤。含**通读清单 8 条链 → 10 条链**（新增⑨角色生死状态链、⑩时间线链）、⚠️ **`lint --pool` 必须指向生成器脚本本身，指向池数据文件会 exit 2（参数用错 ≠ 内容有问题）**、按事件关键词全池回扫
 - `content-platforms/references/golden-echo-and-label-provenance-audit.md` — **金句复读 + 金句标签对不上实际出处（第九类跨字段失配）**：同一句金句在 viewpoint/action/结局里被整句复读 → 读者在同一篇里看到同一段话连说两遍；且模板把 `golden1/2/3` 标成【故事A结尾】/【故事B结尾】/【文章结尾】，但金句是按**池槽位**写的、不是按**实际出处**写的 —— 14 条长文实测 0 条真落在标注位置。2026-11-08 实测命中 27 处，全程绿灯。**2026-11-08 已落地 `GOLDEN_ECHO` 规则**（实测会 fire）。通用教训：「摘要卡 + 正文」型结构天然产生复读缺陷，规则要按「跨字段重复」查而不是按「字段内自洽」查
 - `productivity/content-platforms/scripts/check_pool_type_false_positives.py` — **跨池型假阳性检测器**：给 linter 加完新规则后跑它，逐池把「命中项 + 该池正文字段」并排打出来供人工核对。退出码 2 = 装配不出正文 = 该池字段结构不匹配 = 假阳性来源。⚠️ 不要只看汇总数
 - `references/smtp-credential-failure-case-study.md` — full SMTP transcripts
