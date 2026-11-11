@@ -37,6 +37,8 @@ Cases A–F), `toutiao-cron-outage-2026-09.md` (Cases S+, failure #34 onward),
 | 16 | **`str.format(**kwargs)` silently drops unreferenced kwargs** — "renders without error" does NOT prove the output is complete. Grep the rendered product for the key fields. | SKILL.md Pitfalls |
 | 17 | **A dead mail channel is not a dead content channel** — push the HTML as a native file attachment on a healthy chat route instead of only reporting "email failed". | `references/toutiao-cron-outage-2026-10-week4.md` |
 | 18 | **Don't write a bespoke script for a 30-second cleanup** — a bash one-liner is correct; over-engineering one-off tooling is an anti-pattern. | SKILL.md Pitfalls (Case P) |
+| 19 | **Audit green ≠ content right** — `audit`/`lint`/script exit 0 + Feishu `message.get` verified = the *delivery* is fine, not the *content*. Cross-field and cross-night relations are a blind spot of every current rule. | `content-platforms/references/cross-field-defect-detection.md` |
+| 20 | **Cross-field detection must call the real production function** — reimplementing the selection logic in the test script silently tests the wrong thing (measured "fix had no effect" when the fix was fine). | same reference |
 
 ---
 
@@ -362,6 +364,68 @@ Combining Cases H, J, L, M, N, O, P, Q, R:
 | ≥26 | Same as ≥25, AND commit a `scripts/resend_outbox_html.py` for recovery (Case P) |
 | ≥29 | Same as ≥26, AND (1) frequency-limit-detection patch (avoid rate-limit burn on retries), (2) `PENDING_<date>.html` symlink convention, (3) run at most once per cron cycle (Case Q lesson 3) |
 | **≥31 (today)** | Same as ≥29, AND (1) read `config_loader.py` BEFORE `config.yaml` when hunting for the credential — the loader tells you the exact key path, the YAML may have a top-level null that hides it (Lesson 2), (2) for agent-mode prompt crons, run the script EXACTLY once (you are the canonical run for today); for classic-cron / no_agent script-mode, run ZERO times (the backup already exists) (Lesson 1) |
+
+## Case Q-2026-11-11 — 79th consecutive failure: three cross-field/cross-night defect classes found while every light stayed green
+
+The `toutiao-article-daily.py` cron failed for the **79th consecutive night** (since
+2026-09-27). Same auth code, same `Connection unexpectedly closed`, same 535 — nothing
+new on the SMTP side (Case H dispatch applied). What was genuinely new was on the
+**content** side, and it is the clearest demonstration yet that a green audit proves
+nothing about cross-field or cross-night relationships.
+
+### Delivery side (routine, Case H)
+
+- Classic crontab fired **exactly once** (`syslog 2026-11-11T20:30:01`, 养老院 direction).
+- One artifact only: `20261111_2030_养老院.html` (31.8 KB, body 3297 CJK chars, structure
+  10/10, `audit_rendered_article.py` exit 0). Both history files' mtime stayed at
+  `20:30:01` ⇒ **0 runs allowed** for the reporting session (Case R).
+- Feishu fallback re-verified live: `message_id=om_x100b6071b22940b0dfc318260b1cf4b`
+  → `msg_type=file`, `deleted=False`, `file_name=20261111_2030_养老院.html`.
+- `lint_content_consistency.py` exit 0, `check_pool_type_false_positives.py` exit 0.
+
+### Content side: three defects the tools could not see
+
+1. **Cross-night same-story collision.** 11-10's long article was 随礼人情
+   (老周头 / 烧本子); 11-11's micro #1 was 人情往来 — **the same protagonist and the
+   same ending**. The `SHADOW_MAP` guard only excludes the *current* night's long
+   direction, so the *previous* night's twin slipped through. 60-day simulation: **20%**
+   collision rate. Fixed by widening the exclusion set to "current + previous N +
+   **next N**" long directions (the forward part is essential — otherwise
+   micro-before-long ordering still duplicates). Guard nights tuned empirically:
+   **3/3 → 0/60 collisions with 10/10 coverage on both pools**; 5/5 → 0 collisions but
+   micro coverage collapses to 4/10.
+2. **Hook sentence copied verbatim into the body.** `HOOK_PROMISE` only asks "was the
+   promise fulfilled", not "was it fulfilled by copying the sentence". 2/10 directions
+   hit. Fixed by rewriting the *body* sentence and leaving the hook alone (the hook is
+   the traffic hook — it outranks prose smoothness). Detection: normalize (strip
+   punctuation) and test for verbatim substring, which is stricter and more accurate
+   than a longest-common-substring threshold.
+3. **Golden-line provenance labels wrong.** The template hardcoded
+   「故事A结尾 / 故事B结尾 / 文章结尾」 but goldens are written per *pool slot* — 9 of 20
+   mismatched. Labels ship to the reader. Fixed by **computing** the label from actual
+   provenance (bigram overlap, scoring the whole story not just the ending, neutral
+   「文章金句」 when the source is genuinely ambiguous) rather than hand-editing goldens
+   (which would immediately re-trigger `GOLDEN_ECHO`).
+
+### The transferable lesson
+
+> Every existing rule checks arithmetic *within* one field, or repetition *within* one
+> piece of content. None of them can see a relationship **between** two fields or
+> **between** two nights. A content cron's read-through must therefore include a
+> cross-night comparison and a verbatim-repetition scan, not just the per-field checks.
+
+Full detection/repair code and the guard-tuning table:
+`content-platforms/references/cross-field-defect-detection.md`.
+
+### Corrections applied to the source (Case R — fixes land tomorrow)
+
+All three fixes were made in the generator source (`toutiao-article-daily.py` v1.2.5 →
+**v1.3.0**, plus `toutiao_topics_extra.py` for the two body sentences). The already
+delivered 11-11 HTML is the pre-fix version — the reader's copy is unaffected.
+Verified via isolated harness with temp history files: `lint` exit 0, false-positive
+checker exit 0, isolated render + `audit_rendered_article.py` exit 0 (body 3422 chars,
+structure 10/10, micro content 10/10 within 150–250), hook-repetition hits 0/10,
+cross-night collisions 0/60, and production history files byte-identical afterwards.
 
 ## Case M — `last_status=ok` masks delivery failure (2026-09-14)
 

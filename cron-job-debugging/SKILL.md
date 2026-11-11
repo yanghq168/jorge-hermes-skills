@@ -792,7 +792,7 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   4. **Verify the parser against known-good examples.** Chinese money shorthand (`7万3` = 73000, `一万五` = 15000) must be expanded; a parser that misses it reports unit-confused nonsense that looks like a finding.
      - **🔴 2026-11-02 实测：这类解析器的 bug 比内容缺陷更危险。** 修复那 6 处硬伤时发现 `lint_content_consistency.py` 把**每一种**口语缩写都算错了 —— `_num('7万3')` 返回 **70003**（应 73000）、`_num('一万五')` 返回 **10005**、`_num('十八万七')` 返回 **180007**、`_num('三百二十')` 返回 **500**。旧实现把「万位 + 省略尾数」当成了简单加法，而中文口语的尾数代表**下一级单位**（万→千、千→百、百→十）。
      - **危害方向是双向的**：报出的「缺陷」里有一部分**只是解析器假象**。一个把「5万6」当「5」的解析器，会把**已经写对的文案**报成缺陷，害得修复方把对的改回错的 —— 你「修」了 6 处，其中几处原本就是对的。
-     - **规则：写完检查器必须用已知正确的算例验证解析器本身，不能只看「有没有报错」。** 本部署已在 `scripts/lint_content_consistency.py` 内置 `_self_test()`：15 个金额算例 + 正误两条拆分算例；自检失败 → **退出码 2**（工具坏了），与内容问题的 **退出码 1** 区分开。**改解析器后第一件事是看自检输出，而不是直接改文案。**
+     - **规则：写完检查器必须用已知正确的算例验证解析器本身，不能只看「有没有报错」。** 本部署已在 `content-platforms/scripts/lint_content_consistency.py` 内置 `_self_test()`：15 个金额算例 + 正误两条拆分算例；自检失败 → **退出码 2**（工具坏了），与内容问题的 **退出码 1** 区分开。**改解析器后第一件事是看自检输出，而不是直接改文案。**
      - **两套口径别混用**：`_num()` 返回**元**（`_num('5万6')` = 56000），`_wan_amount()` 返回**万**（`_wan_amount('5','6')` = 5.6），差 1e4 —— 两个函数的 docstring 都必须写清单位。
   Full write-up + the 6 recorded defects: `content-platforms/references/content-self-consistency-checking.md`.
 
@@ -955,6 +955,22 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   然后才把剩余预算花在**通读 + 修复**上。
   ⚠️ 这套顺序的价值在于：把「跑没跑/送没送到」（便宜、确定）先钉死，
   剩下的额度全部用于「内容对不对」（贵、才是真正需要 agent 智力的部分）。
+- **🆕 2026-11-11 实测：这条顺序再加一条 —— 「**产物已经落盘**」要同时用
+  **产物文件数 + 两个 history 文件的 mtime** 交叉验证，不能只看其中一个**。
+  当晚 `ls 20261111*.html | wc -l` = 1 且两个 history 文件 mtime 都停在
+  `20:30:01` ⇒ 确认 classic cron 恰好触发 1 次、本会话 0 次执行许可（Case R）。
+  只数产物文件可能被「上次残留 + 今晚失败」骗过；只看 mtime 则无法证明没有
+  第二个产物。**两个信号一起看，结论才成立。**
+- **🔴 2026-11-11 实测：即使 audit / lint / 脚本 exit 全绿 + 备用通道已回查
+  送达，产物仍可能有三类「跨字段·跨夜失配」硬伤** —— 那晚 `audit exit 0` /
+  `lint exit 0` / 脚本 exit 0 / 飞书 `message.get` 回查 `msg_type=file` +
+  `file_name` 全部正常，仍抓到跨夜同故事碰撞、钩子整句复读、金句标签对不上
+  实际出处 3 类读者可见缺陷。**根因是现有规则全都在查「单字段内的算式」或
+  「同一条内容内部的重复」，查不到「这条内容与另一条内容（另一晚）的关系」。**
+  通用教训：**审计工具全绿 ≠ 跨字段关系正确**；夜间内容 cron 的通读必须包含
+  **跨夜比对**（今晚的微头条 == 前/后几晚的长文？）+ **整句复读扫描**（钩子/
+  标题句在正文里逐字出现？）。检测与修复代码见
+  `content-platforms/references/cross-field-defect-detection.md`。
 - **🆕 2026-11-09 实测：把这套顺序和「README 早写」合起来用，一晚做完**。
   当晚实测有效顺序（与 11-08 的差别只在第 ③ 步）：
   1. **一条命令同时取四个信号**（syslog 当日行数 + outbox 落盘 + 脚本日志尾部 + 飞书回查）。
@@ -1163,7 +1179,7 @@ script for this cleanup. Full recipe: `references/case-log-chronic-outage.md`.
 H, I, J, R, M, N, O, P — one section per cron-run session, with its date, its
 "Today's run" log, and the reasoning behind each rule above) is in
 `references/case-log-chronic-outage.md`. That file also opens with a distilled
-table of all 18 durable lessons from those sessions. Read it when you need the
+table of all 20 durable lessons from those sessions. Read it when you need the
 *history* or the *reasoning*; do not read it as step 1 of a live outage.
 
 Related case-detail references:
@@ -1178,7 +1194,11 @@ Related case-detail references:
 - `content-platforms/references/hook-promise-and-title-payoff-audit.md` — **钩子承诺不兑现（标题党翻车）**：钩子/标题承诺的画面、引语、数字正文一个字都没写 → 读者点进来想看的东西看不到。2026-11-06 实测 10/10 长文命中且全程绿灯。内容侧的「单字段自洽、跨字段失配查不到」盲区。**2026-11-07 已落地 `HOOK_PROMISE` 规则**（实测会 fire），并记录了规则自身「装配口径只认 story_* → 微头条池整池假阳性」的坑
 - `content-platforms/references/character-lifecycle-and-timeline-chain-audit.md` — **缺陷十一「人物生死状态链断裂」+ 缺陷十二「时间线链打架」**：已故角色仍在对话里说话（死人复活）、同一事件两个时点（丧事当天 vs 三个月后）。2026-11-10 实测，audit/lint/脚本全绿 + 飞书已送达仍靠通读抓到 10 处硬伤。含**通读清单 8 条链 → 10 条链**（新增⑨角色生死状态链、⑩时间线链）、⚠️ **`lint --pool` 必须指向生成器脚本本身，指向池数据文件会 exit 2（参数用错 ≠ 内容有问题）**、按事件关键词全池回扫
 - `content-platforms/references/golden-echo-and-label-provenance-audit.md` — **金句复读 + 金句标签对不上实际出处（第九类跨字段失配）**：同一句金句在 viewpoint/action/结局里被整句复读 → 读者在同一篇里看到同一段话连说两遍；且模板把 `golden1/2/3` 标成【故事A结尾】/【故事B结尾】/【文章结尾】，但金句是按**池槽位**写的、不是按**实际出处**写的 —— 14 条长文实测 0 条真落在标注位置。2026-11-08 实测命中 27 处，全程绿灯。**2026-11-08 已落地 `GOLDEN_ECHO` 规则**（实测会 fire）。通用教训：「摘要卡 + 正文」型结构天然产生复读缺陷，规则要按「跨字段重复」查而不是按「字段内自洽」查
+- `content-platforms/references/cross-field-defect-detection.md` — **缺陷十三/十四/十五「跨字段·跨夜失配」**：跨夜同故事碰撞（`SHADOW_MAP` 只挡当晚，挡不住「前一晚的长文 == 今晚的微头条」，60 天模拟 20%）、钩子整句在正文里逐字复读（`HOOK_PROMISE` 只查「有没有兑现」）、金句出处标注对不上实际出处（9/20 不符）。含**守卫夜数调参表**（3/3 碰撞 0/60 且两池覆盖 10/10；5/5 会把微头条覆盖压到 4/10）、**检测与修复代码**、以及「必须调用真实生产函数而不是在测试脚本里复刻逻辑」的踩坑
 - `productivity/content-platforms/scripts/check_pool_type_false_positives.py` — **跨池型假阳性检测器**：给 linter 加完新规则后跑它，逐池把「命中项 + 该池正文字段」并排打出来供人工核对。退出码 2 = 装配不出正文 = 该池字段结构不匹配 = 假阳性来源。⚠️ 不要只看汇总数
+- `scripts/send_email_with_outbox.py` — **可直接 import 的发送封装**（`send_email_with_outbox`）：给裸 `smtplib.SMTP_SSL().login().sendmail()` 补上「瞬时故障重试一次（3s backoff）+ 最终失败落盘 outbox 并把绝对路径写进错误串」两段逻辑。cron 脚本里 `from send_email_with_outbox import send_email_with_outbox as send_email` 即可，行为与本技能 §6 的模板一致（2026-08-25 第三次 QQ 授权码失效后写的）
+- `scripts/resend_outbox_html.py` — 授权码修复后补发 outbox 里的历史 HTML
+- `scripts/probe_smtp.py` — SMTP 凭据探针（465-SSL + 587-STARTTLS，判别 535 / silent-reject / connect 失败三种形态）
 - `references/smtp-credential-failure-case-study.md` — full SMTP transcripts
 - `references/case-m-last-status-masking.md` — `last_status=ok` masking
 - `references/feishu-stale-thread-id-delivery-failure.md` — stale `omt_` thread_id

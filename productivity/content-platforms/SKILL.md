@@ -53,19 +53,22 @@ cronjob (定时)
 - **`references/orphan-extensions-and-hand-arithmetic-audit.md`** — **孤儿扩写 + 人工算账审计**：扩写段落整个换成另一个故事；自动化审计全绿但手工通读抓到 9 处硬伤。含 ORPHAN 检测规则的三次踩坑（不能按频次判主角 / 不能拿整篇比 / 人名抽取太贪婪）、通读要盯的 6 条链、**批次替换原子性陷阱**（一条失败会丢弃整批成功编辑）、给 linter 加规则的自检纪律
 - **`references/hook-promise-and-title-payoff-audit.md`** — **缺陷八「钩子承诺不兑现」**：钩子/标题承诺的具体场景、引语、数字，正文一个字都没写 → 读者点进来想看的画面看不到 = **标题党翻车**。2026-11-06 实测 **10/10 长文全部命中**，且全程绿灯（audit exit 0 + linter exit 0 + 飞书已送达）。含 10 条选题的实测矩阵、只查「可客观验证」的承诺口径（引语 / 数字 / 年龄链）、**修法要写进正文而不是把钩子写软**、兑现段放哪里、`HOOK_PROMISE` 规则的完整契约（函数签名 + 必须接进 `lint()` + `_self_test()` 两条算例）、以及「中文间误插空格」的全库扫描 grep。**2026-11-07 已落地**（`HOOK_PROMISE` 已接入 linter 并实测会 fire），并记录了规则自身「装配口径只认 story_*、导致微头条池整池假阳性」的坑 —— 见下方「新增检查器的三步验证」
 - **`references/golden-echo-and-label-provenance-audit.md`** — **缺陷九「金句复读」+「金句标签对不上实际出处」**：同一句金句在 viewpoint/action/结局里被整句复读 → 读者在同一篇里看到同一段话连说两遍；且模板把 `golden1/2/3` 标成【故事A结尾】/【故事B结尾】/【文章结尾】，但金句是按**池槽位**写的、不是按**实际出处**写的 —— 14 条长文实测 **0 条**真落在标注位置。2026-11-08 实测 14 条长文命中 **27 处**（阈值 ≥10 字公共中文子串），而 audit/lint/脚本**全程绿灯**。含完整实测矩阵（8 个方向 × 复读位置 × 复读片段）、**最长公共子串检测法**（含阈值取 10 的理由）、判定范围必须覆盖 `story_a_ending`/`story_b_ending`（只扫 viewpoint+action 会漏一半）、**修法是改金句不是改正文**（金句卡是提炼物）、重新指派 golden1/2/3 时要连 viewpoint/action 一起改（否则只是把复读从一处搬到另一处）、`GOLDEN_ECHO` 规则的完整契约（三条自检算例 + 池型分叉）、以及「摘要卡 + 正文」型内容产品的通用教训。**2026-11-08 已落地**（`GOLDEN_ECHO` 已接入 linter 并实测会 fire）
+- **`references/cross-field-defect-detection.md`** — **缺陷十三/十四/十五「跨字段·跨夜失配」检测与修复手册**（2026-11-11 实测）：**跨夜同故事碰撞**（`SHADOW_MAP` 只挡当晚，挡不住「前一晚的长文 == 今晚的微头条」—— 实测实例：11-10 长文=随礼人情/老周头烧本子，11-11 微头条=人情往来/同一个老周头；读者连续两封邮件读同一故事；60 天模拟碰撞 **20%**；修法：排除集扩到「当晚+前 N 晚+**后 N 晚**」，长文方向可预测（LRU 无并列时选择唯一，实测预测 30/30 准确）；**守卫夜数调参表**：3/3 碰撞 0/60 且两池覆盖 10/10，**5/5 会把微头条覆盖压到 4/10**）+ **钩子整句在正文里逐字复读**（`HOOK_PROMISE` 只查「有没有兑现」，查不到「兑现方式是整句复制」；检测口径 = 钩子按句切开 → 去标点归一化 → 逐字 `in` 正文，比公共子串更准；**改正文不动钩子**）+ **金句出处标注与实际出处对不上**（模板硬编码「故事A结尾/故事B结尾/文章结尾」，20 条里 9 条不符；**修法是不手改金句而是按实际出处动态算标签** `_golden_labels()`，bigram 重叠率 + 打分用整段故事 + 差距小就标中性「文章金句」——**宁可模糊也不说假话**）。含通用跨字段公共子串扫描脚本 + 「必须调用真实生产函数而不是在测试脚本里复刻逻辑」的踩坑
 - **`references/character-lifecycle-and-timeline-chain-audit.md`** — **缺陷十一「人物生死状态链断裂」+ 缺陷十二「时间线链打架」**：2026-11-10 实测，audit/lint/脚本全绿 + 飞书已送达，通读仍抓到 10 处硬伤。含**已故老伴仍在对话里说话**（死人复活）与**同一事件两个时点**（丧事当天烧 vs 三个月后烧）两类全新缺陷 —— 现有规则全是「数值链」和「存在性链」，缺「**状态链**」和「**时间链**」两种口径；**通读清单从 8 条链扩到 10 条**（新增⑨角色生死状态链、⑩时间线链）；⚠️ **`lint --pool` 必须指向生成器脚本本身，指向池数据文件会 exit 2（参数用错 ≠ 内容有问题，别去改文案）**；按**事件关键词**全池回扫而不是按位置回扫；一批修复没验证完时必须在报告里写明「明晚首跑后确认」
 - **`references/audit-tool-death-and-prompt-language.md`** — **缺陷七：审计工具自己死了**（linter 连续 2 晚崩在自检上却因退出码语义混淆而没被发现；「写了函数 ≠ 规则生效」）+ **配图提示词混中文**（会渲染成乱码汉字，新增 `PROMPT_HAS_CJK`）+ **周期频次 vs 年度汇总**（新增 `PERIODIC_VS_YEARLY`）。含「跑审计工具必须单独看退出码，不能看管道里 tail 的」硬规则
 - **`scripts/apply_hook_promise.py`** — **HOOK_PROMISE 规则落地补丁**（2026-11-06 新增，**2026-11-07 已应用到 linter**）：把 `check_hook_promise()` + `_hook_promise_body()` + `lint()` 调用点 + `_self_test()` 算例**一次性注入** `lint_content_consistency.py`。用法：`python3 apply_hook_promise.py <lint_content_consistency.py>` → `py_compile` → 跑 linter 单独看退出码。**已实测会 fire**（断言 exit 1 + 报出 `HOOK_PROMISE`）。⚠️ 落地后发现规则自身的**装配口径只认 `story_*` 字段** → 微头条池（正文在 `content`）整池假阳性（15 处命中里 14 处是假的），已修（见 `_hook_promise_body()` 现在的 `if g('content')` 分叉）。**新注入的补丁要再跑一遍「跨池型不误报」验证**（见下方「新增检查器的三步验证」）。规则设计与实测矩阵见 `references/hook-promise-and-title-payoff-audit.md`
 - **`scripts/audit_rendered_article.py`** — **产物审计脚本（通用）**：一条命令量出已渲染 HTML 的正文中文字数、结构完整性（故事A·对话/结局、故事B·结局、观点、行动、金句）、配图提示词数与 `no text` 约束、话题标签数、微头条 `content` 字数是否落在 [150,250]。`--pool <content_script.py>` 顺便核对选题池；`--json` 机器可读。改完生成器后必跑，别手写正则数字数
 - **`scripts/check_pool_type_false_positives.py`** — **跨池型假阳性检测器（2026-11-07 新增）**：给 linter 加完新规则后跑它，逐池把「命中项 + 该池正文字段」并排打出来供人工核对。起因：`HOOK_PROMISE` 落地后 15 处命中里 **14 处是假阳性** —— 微头条池正文在 `content`，而规则的装配函数只认 `story_*` → 微头条正文被装配成空串。用法：`python3 check_pool_type_false_positives.py --pool <生成器.py> --extensions <扩写.py> [--json]`；退出码 0=跑完 / **2=装配不出正文（该池字段结构与 body_for() 不匹配 = 假阳性来源）**。⚠️ **不要只看汇总数**（15 实际只有 1 个真缺陷）—— 必须逐条核对
 - **`scripts/lint_content_consistency.py`** — **内容自洽性 lint（通用）**：查数字算不算得通、角色存不存在。`audit_rendered_article.py` 测不出算术错误与凭空多出的角色（这类缺陷全程绿灯，读者一按计算器就穿帮）。检查码：`SUM_EXCEEDS_FEE`/`SUM_VS_HALF_CLAIM`/`SPLIT_VS_TOTAL`/`FRACTION_MISMATCH`/`PERIOD_MONTH_YEAR`/`CONTRIB_VS_FEE`/`PHANTOM_SON`/`FREQ_CONFLICT`/`PERIODIC_VS_COUNT`，以及 2026-11-04 新增的 `SPLIT_SUM_VS_INHERITED_TOTAL`（分家之和≠声明总额）/`PERIOD_TOTAL_VS_SEGMENTS`（合计月数≠各段之和）/`CARE_COST_VS_MONTHS`（护工月费×月数≠实付）/`ORPHAN_CHARACTER`（扩写段落出现主体故事没有的人物），2026-11-05 新增的 `PROMPT_HAS_CJK`（配图提示词混入中文→生图乱码）/`PERIODIC_VS_YEARLY`（周期频次≠年度汇总次数），2026-11-07 新增并接进 `lint()` 的 `HOOK_PROMISE`（钩子/标题承诺的引语与数字必须在正文兑现），2026-11-08 新增并接进 `lint()` 的 `GOLDEN_ECHO`（金句 `golden1/2/3` 被 viewpoint/action/ending 整句复读）。`--pool <script.py>`、`--extensions <ext.py>`、`--json`；退出码 0=干净 / 1=内容有问题 / **2=工具自检失败（工具坏了，不是内容坏了）**。**改完生成器/扩写段落必跑**；新增规则时**必须**在 `_self_test()` 里配「正例不报 + 反例必报」两条算例，**且必须实测规则会 fire**（造真实反例断言 exit 1）—— 只跑干净内容 exit 0 证明不了规则接上了；**还要跑「跨池型不误报」**（`scripts/check_pool_type_false_positives.py`；微头条池与长文池字段结构不同，装配口径必须分叉）。**跑完必须单独看退出码**（别用管道吞掉它）。⚠️ **`--pool` 必须指向生成器脚本本身（`toutiao-article-daily.py`），指向池数据文件会 exit 2 = 参数用错，不是内容有问题** —— exit 2 与 exit 1 语义相反，切勿据此改文案；详见 `references/audit-tool-death-and-prompt-language.md`
+- `references/wechat-article-sample.md` — 公众号「围炉家常话」输出样例（邮件标题、人设、双故事论证法结构全文范例），改版式前先看它对齐既有产出
+- `references/xhs-escape-weekend.md` — 小红书周末出逃计划 `xhs-escape-weekend.py` 参考实现（2天1夜短途出行、14个目的地）
 - `references/xhs-travel-guide-sample.md` — 小红书旅游攻略参考实现
 - `references/xhs-travel-script-identifier.md` — **两个旅游脚本辨析**：`xhs-travel-daily.py`（主，23:00）vs `xiaohongshu-travel-daily.py`（旧，已停用）+ shell转义踩坑
 - `references/dedup-visited-destinations.md` — 小红书旅游脚本景点去重机制：_pick_unvisited()实现、追踪文件、循环覆盖逻辑
 - **`cron-job-debugging` 技能** — Cron/SMTP/outbox 故障的诊断职责归属（该技能是 Cron 故障的 umbrella，本技能只负责内容生成）：
   - `cron-job-debugging/references/no-agent-false-error-reporting.md` — no_agent 脚本 `last_status: error` 误报的判别
   - `cron-job-debugging/references/duplicate-scheduled-task-detection.md` — 重复调度任务排查（jobs.json vs crontab、同一功能不同文件名脚本、旧品牌名清理）
-  - `cron-job-debugging/references/case-log-chronic-outage.md` — 长期 SMTP 故障的完整案例日志与 18 条经验沉淀
+  - `cron-job-debugging/references/case-log-chronic-outage.md` — 长期 SMTP 故障的完整案例日志与 20 条经验沉淀
 - `references/douyin-hotsearch-to-article-sop.md` — **抖音热搜变爆款文章SOP：从热搜采集到多平台分发的完整操作流程**
 - `references/viral-title-templates.md` — 爆款标题模板库（5种类型×3个模板，含热词类型→标题类型映射和代码移植建议）
 - `references/unified-content-daily.md` — 全平台内容生成脚本 `unified-content-daily.py` 参考实现（含 Image2 生图提示词逻辑、图文素材表结构、邮件HTML模板）
@@ -354,6 +357,21 @@ for item in items:
   - ⚠️ **代词比人名更危险**：扩写段常常只写「她」「老伴」，人名 grep 抓不到 → 必须逐段读、看清主语。
   - ⚠️ **`lint --pool` 必须指向生成器脚本本身**（`toutiao-article-daily.py`），**指向池数据文件会 exit 2 = 参数用错，不是内容有问题** —— exit 2 与 exit 1 语义完全相反，别据此去改本来正确的文案。先看 stderr 确认是哪一种。
   - 详见 `references/character-lifecycle-and-timeline-chain-audit.md`。
+- **🔴 2026-11-11 实测新增第 13、14、15 类缺陷**（当晚 audit exit 0 / lint exit 0 / 脚本 exit 0 / 飞书附件已回查送达，全程绿灯，仍抓到 3 类读者可见硬伤）：
+  1. **跨夜同故事碰撞**（`SHADOW_MAP` 只挡「当晚」，挡不住「前一晚的长文 == 今晚的微头条」）：
+     - **实测实例（非模拟）**：11-10 长文 = 随礼人情（老周头随份子/烧本子），11-11 微头条 1 = 人情往来（**同一个老周头、同一个烧本子**）—— 读者在**连续两封邮件**里把同一个故事读了两遍。
+     - **根因**：`generate_micro_articles()` 只把**当晚**长文方向的影子排除掉，**前一晚**的完全没管。而两池 LRU 同步推进 ⇒ 跨夜碰撞是必然的，不是概率事件。60 天模拟实测 **20%**。
+     - **修法**：排除集扩到「当晚 + 前 N 晚 + **后 N 晚**」的长文方向影子。**「后 N 晚」不能省** —— 只挡「往前看」会漏掉「微头条先出、长文后出」那种顺序，读者照样连着两晚读同一个故事。
+     - **长文方向可预测**：LRU 在无并列时选择唯一 ⇒ 可推演未来 N 晚的方向（实测预测 **30/30 准确**）。守卫夜数别调大：**5/5 会把微头条方向覆盖压到 4/10**（10 条微头条里 6 条是影子，会被挤掉）。**3/3 是平衡点**：碰撞 0/60 + 两池覆盖 10/10。
+     - **通读清单新增第 ⑪ 条链：跨池同故事链** —— 「今晚的微头条 == 前/后几晚的长文？」读者连续两封邮件读同一个故事 = 订阅体验最伤的失败。
+  2. **钩子整句在正文里逐字复读**：`HOOK_PROMISE` 只查「钩子承诺**有没有兑现**」，查不到「兑现的方式是**整句复制**」。
+     - 实测 **2/10 方向**命中（养老院、兄弟姐妹）—— 读者在两屏之内看到同一句话两遍，比金句复读更靠前（钩子就在正文最上方）。
+     - **修法：改正文那一句，不动钩子。** 钩子是头条的流量钩子，优先级高于正文顺滑。
+     - **检测口径**：把钩子按句切开，**归一化后（去标点空格）逐字 `in` 正文** —— 比「最长公共子串 ≥10 字」更准（公共子串会误报正常的呼应）。
+  3. **金句出处标注与实际出处对不上**（文档里记过、但一直没修的第九类同款）：模板把 `golden1/2/3` 硬编码成「故事A结尾/故事B结尾/文章结尾」，但金句是按**池槽位**写的、不是按实际出处写的 —— 实测 **20 条里 9 条**标注与实际出处不符。标签是**渲染给读者看的**（不是注释），读者会以为是排版错乱。
+     - **修法：不手改金句**（改了会连带出新的复读），而是**按实际出处动态算标签**（`_golden_labels()`）：bigram 重叠率定位来源段（打分用**整段故事**而不是 ending 那一句 —— 金句常提炼自故事中段）；**差距太小就标中性「文章金句」—— 宁可模糊也不说假话**。
+     - ⚠️ **打分管线必须按「池型分叉」**（微头条池没有 golden1/2/3 ⇒ 直接返回中性标签，否则整池假阳性）。
+  - **这三条的共性**：都是**跨字段/跨夜**的失配 —— 现有规则查的是「单字段内的算式」和「同一条内容内部的重复」，查不到「**这条内容与另一条内容的关系**」。**通读清单已从 10 条链扩到 11 条链（新增⑪跨池同故事链）。**
 - **⚠️ 2026-11-09 实测：改文案会把「字数约束」顶出去 —— 每次改完必须重新量字数**。修微头条《我82岁，房产证…》的逻辑矛盾时，顺手补了一句「第二天就回了老家一趟」，**CJK 字数从 250 涨到 266，越界**。`lint_content_consistency.py` **不会**报这个（它查数值链，不查字数区间）—— 字数区间只有 `audit_rendered_article.py --pool` 的 `--pool` 输出会报，而那要等**渲染后**才看得到。
   - **规则：改任何池条目的文案后，立刻重新量该条的 CJK 字数**（微头条硬约束 150–250），不要等下次渲染才发现。
   - **⚠️ 锚点匹配的两个坑（今晚各踩一次）**：① 长锚点漏掉前导单引号 → `count=0`（源码是 `\'` 转义形式）；② **改错了段落** —— 我以为矛盾句在 A 段、实际在 B 段，结果首轮「修复」根本没碰到那句。**修法：锚点用最小唯一片段；replace 成功后必须回读断言实际文本（`assert "旧句" not in 新文本`），不能只看「replace 成功」。**
@@ -471,7 +489,7 @@ for item in items:
      **不要把 `STANDBY` 写到 `if not success:` 分支之外**（成功时也写会让消费者误判为失败信号），也**不要写到 `~/.hermes/cron/output/<job_id>/` 下**（那是调度器日志目录，混入会污染"脚本是否成功运行"的记录）。
 
   诊断与修复交给 `cron-job-debugging`：
-  - 完整 SMTP 诊断流程（含 `scripts/probe_smtp.py` 探针、535/silent-reject 判别、端口 465/587 切换）→ `cron-job-debugging` §5
+  - 完整 SMTP 诊断流程（含 `cron-job-debugging/scripts/probe_smtp.py` 探针、535/silent-reject 判别、端口 465/587 切换）→ `cron-job-debugging` §5
   - outbox 累积 ≥3 天 ⇒ 授权码已失效，直接引导用户去 `mail.qq.com → 设置 → 账户` 重生成授权码 → `cron-job-debugging` 的 Escalation policy
   - 持续 N≥10 天 ⇒ 用 `cron-job-debugging` 的 4 行极简 dispatch 模板，并把 `## YYYY-MM-DD（持续中 — 第N天）` 追加到 `outbox/<platform>/README.md`（README 是跨会话记忆，单次 cron 报告会被滚动覆盖）
   - ⚠️ **不要依据 `SMTPServerDisconnected` 判定"IP-level AUTH block"**：该假设（Case K）已在 2026-10-20 被原始 socket 对照实验推翻——本部署始终是普通 535 凭据失效。详见 `cron-job-debugging` 的 Case K 纠正说明。

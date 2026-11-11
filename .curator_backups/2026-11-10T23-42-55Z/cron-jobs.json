@@ -20,15 +20,15 @@
       "schedule_display": "0 23 * * *",
       "repeat": {
         "times": null,
-        "completed": 134
+        "completed": 169
       },
       "enabled": true,
       "state": "scheduled",
       "paused_at": null,
       "paused_reason": null,
       "created_at": "2026-05-27T00:40:27.868154+08:00",
-      "next_run_at": "2026-10-07T23:00:00+08:00",
-      "last_run_at": "2026-10-06T23:00:41.627992+08:00",
+      "next_run_at": "2026-11-11T23:00:00+08:00",
+      "last_run_at": "2026-11-10T23:00:39.728010+08:00",
       "last_status": "ok",
       "last_error": null,
       "last_delivery_error": null,
@@ -62,24 +62,24 @@
       "schedule_display": "30 20 * * *",
       "repeat": {
         "times": null,
-        "completed": 132
+        "completed": 167
       },
       "enabled": true,
       "state": "scheduled",
       "paused_at": null,
       "paused_reason": null,
       "created_at": "2026-05-27T01:21:17.367934+08:00",
-      "next_run_at": "2026-10-07T20:30:00+08:00",
-      "last_run_at": "2026-10-06T20:40:39.581755+08:00",
-      "last_status": "ok",
-      "last_error": null,
-      "last_delivery_error": "delivery error: Feishu send failed: [99992402] field validation failed",
-      "deliver": "origin",
+      "next_run_at": "2026-11-11T20:30:00+08:00",
+      "last_run_at": "2026-11-10T21:14:37.684674+08:00",
+      "last_status": "error",
+      "last_error": "RuntimeError: # \u5934\u6761\u53f7\u665a\u62a5 \u00b7 2026-11-10\n\n## \ud83d\udcec \u4eca\u665a\u5185\u5bb9\u5df2\u751f\u6210\u5e76\u9001\u8fbe\uff08\u5907\u7528\u901a\u9053\uff09\n\n**\u957f\u6587**\u300a65\u5c81\u8001\u4eba\u968f\u4e8620\u5e74\u4efd\u5b50\u94b1\uff0c\u6700\u540e\u4e00\u573a\u9152\u5e2d\u6ca1\u8bf7\u4ed6\uff1a\u4eba\u60c5\u8584\u5982\u7eb8\u300b\uff08\u65b9\u5411\uff1a\u968f\u793c\u4eba\u60c5\uff09\n**\u5fae\u5934\u6761 2 \u6761**\uff1a\u300a\u621165\u5c81\uff0c\u5b58\u6b3e30\u4e07\uff0c\u9000\u4f11\u91d13000\u3002\u6211\u7b97\u4e86\u7b97\uff0c\u4e0d\u591f\u517b\u8001\u7684\u300b/\u300a\u5927\u4f2f\u4f9b\u6211\u4e0a\u5927\u5b66\uff0c\u82b1\u4e8615\u4e07\u3002\u6211\u5de5\u4f5c\u7b2c\u4e00\u4ef6\u4e8b\uff0c\u662f\u628a\u4ed6\u5c4f\u853d\u300b\n\n- \u4ea7\u7269\uff1a`~/.hermes/cron/outbox/toutiao/20261110_2030_\u968f\u793c\u4eba\u60c5.html`\uff0830.9 KB\uff0c\u6b63\u6587 3106 \u4e2d\u6587\u5b57\uff0c\u7ed3\u6784 10/10 \u5728\u4f4d\uff09\n- \u2705 **\u98de\u4e66\u9644\u4ef6\u5df2\u56de\u67e5\u786e\u8ba4\u9001\u8fbe**\uff1a`message_id=om_x100b6004aa3d9cacde9956c2a5de29b` \u2192 `msg_type=file`\u3001`deleted=False`\u3001`file_name=20261110_2030_\u968f\u793c\u4eba\u60c5.html`\n- \u2705 20:30 classic crontab **\u6070\u597d\u89e6\u53d1 1 \u6b21**\uff0c\u672c\u4f1a\u8bdd\u6309 Case R **\u672a\u91cd\u590d\u6267\u884c\u811a\u672c**\uff08\u907f\u514d\u751f\u6210\u7b2c\u4e8c\u4efd\u4ea7\u7269\u3001\u6c61\u67d3\u9009\u9898\u5386\u53f2\uff09\n- \u2705 \u9009\u9898\u8f6e\u6362\u5065\u5eb7\uff1a\u957f\u6587 10/10 \u65b9\u5411\u8986\u76d6\u3001\u65e0\u8fde\u7eed\u91cd\u590d\uff1b\u4eca\u665a\u4e24\u6761\u5fae\u5934\u6761\u4e92\u4e0d\u76f8\u540c\u4e14\u672a\u4e0e\u957f\u6587\u5f71\u5b50\u65b9\u5411\u78b0\u649e\n\n## \u274c QQ \u90ae\u7bb1\u4ecd\u672a\u9001\u8fbe\uff08\u7b2c 78 \u5929\uff09\n\n\u811a\u672c\u4fa7\u62a5 `Connection unexpectedly closed`\uff0c\u5b9e\u4e3a QQ SMTP \u6388\u6743\u7801 `iylylmwnitbbbebi` \u5931\u6548\uff08535\uff09\u3002\u8fd9\u662f**\u552f\u4e00\u963b\u585e\u9879**\uff0c\u5185\u5bb9\u672c\u8eab\u5df2\u751f\u6210\u5e76\u901a\u8fc7\u5907\u7528\u901a\u9053\u9001\u8fbe\u3002\n\n**\u4fee\u590d\u65b9\u5f0f\uff1a**\n1. mail.qq.com \u2192 \u8bbe\u7f6e \u2192 \u8d26\u6237 \u2192 SMTP\u670d\u52a1 \u2192 **\u91cd\u65b0\u751f\u6210\u6388\u6743\u7801**\n2. \u66ff\u6362 `~/.hermes/cron/config/config.yaml` \u7684 `mail.smtp_pass`\uff08`.env` \u7684 `QQ_EMAIL_AUTH_CODE` \u662f\u540c\u4e00\u4e32\u6b7b\u7801\uff0c\u8981\u4e00\u8d77\u6362\uff09\n3. \u5168\u91cf\u8865\u53d1\uff1a`python3 ~/.hermes/skills/cron-job-debugging/scripts/resend_outbox_html.py toutiao --all`\n\n**\u5f71\u54cd\u8303\u56f4\uff1a9 \u4e2a\u811a\u672c\u5171\u7528\u540c\u4e00\u6b7b\u7801**\uff08toutiao / wechat / unified / daily_report / bithappy_email_pro / xhs-travel / xhs-escape-weekend / xiaohongshu-travel / resend\uff09\uff0c\u6362\u4e00\u6b21\u6388\u6743\u7801\u53ef\u5168\u90e8\u6062\u590d\u3002\n\n## \ud83d\udd0d \u624b\u5de5\u901a\u8bfb\u6293\u5230 10 \u5904\u8bfb\u8005\u53ef\u89c1\u786c\u4f24\uff08audit / lint \u5168\u7a0b\u7eff\u706f\uff09\n\n\u81ea\u52a8\u5316\u5de5\u5177\u5168\u7eff\uff0c\u4f46\u901a\u8bfb + \u624b\u52a8\u52a0\u6570\u4ecd\u6293\u5230\u786c\u4f24\u3002**\u5df2\u5168\u90e8\u6539\u6e90\u7801\u4fee\u590d\uff0c\u660e\u665a\u751f\u6548**\uff08\u672a\u91cd\u8dd1\u5df2\u6295\u9012\u4ea7\u7269\uff09\uff1a\n\n| # | \u7f3a\u9677 | \u4fee\u590d |\n|---|---|---|\n| 1 | **\u6545\u4e8bA \u8001\u4f34\u5df2\u53bb\u4e16\u4ecd\u5728\u8ddf\u4ed6\u8bf4\u8bdd**\uff08`story_a_dialogue` + `ext_a` \u4e24\u5904\uff09 | \u6539\u4e3a\u300c\u5bf9\u7740\u9057\u50cf\u8bf4\u300d |\n| 2 | \u70e7\u672c\u5b50\u65f6\u95f4\u7ebf\u6253\u67b6\uff1a\u7ed3\u5c40\u8bf4\"\u529e\u5b8c\u4e27\u4e8b\u5f53\u5929\u70e7\"\uff0c\u6269\u5199\u8bf4\"\u8d70\u4e863\u4e2a\u6708\u70e7\" | \u7edf\u4e00\u4e3a\u300c\u8001\u4f34\u8d70\u4e86\u4e09\u4e2a\u6708\u300d |\n| 3 | **\u91d1\u989d\u94fe\u7b97\u4e0d\u901a**\uff1a\u8d75\u8001\u5e08\u968f\u4e86 1500\uff0c\u53f0\u8bcd\u5374\u8bf4\u300c\u8fd91000\u4e0d\u7b97\u4ec0\u4e48\u300d | \u7edf\u4e00\u4e3a 1500 |\n| 4 | golden1 \u4e0e\u3010\u89c2\u70b9\u3011\u51e0\u4e4e\u590d\u8bfb\uff0c\u4e14\u6807\u7b7e\u6807\u300c\u6545\u4e8bA\u7ed3\u5c3e\u300d\u4f46\u5185\u5bb9\u5e76\u975e\u51fa\u81ea\u6545\u4e8bA | \u6362\u5199\u6210\u771f\u6b63\u51fa\u81ea\u6545\u4e8bA \u7684\u63d0\u70bc |\n| 5 | \u3010\u89c2\u70b9\u3011\u4e0e\u6545\u4e8bB\u300c\u4eba\u60c5\u8fd9\u4e1c\u897f\uff0c\u4e0d\u80fd\u5e7f\u6492\u7f51\u300d\u6574\u53e5\u590d\u8bfb | \u6539\u5199 |\n| 6 | \u3010\u51fa\u53e3\u3011\u4e0e\u91d1\u53e52\u300c\u8ba4\u51c6\u4e00\u4e24\u4e2a\u4eba\u300d\u300c\u5047\u4eba\u60c5\u4e0d\u5982\u6ca1\u6709\u300d\u590d\u8bfb | \u6539\u5199 |\n| 7 | ext_b \u590d\u8bfb story_b \u7684\u4e24\u7b14\u793c + \u590d\u8bfb story_b_ending \u91d1\u53e5 + \u4e0e\u300c\u4e00\u6982\u4e0d\u968f\u300d\u81ea\u76f8\u77db\u76fe | \u6574\u6bb5\u91cd\u5199\uff08\u5907\u5fd8\u5f55/\u63a8\u6389\u9152\u5e2d\u65b0\u7ec6\u8282\uff09 |\n| 8 | \u623f\u4ea7\u7ea0\u7eb7 action \u4e0e story_b_ending \u6574\u53e5\u590d\u8bfb | \u6539\u5199 |\n| 9 | \u665a\u5e74\u5b64\u72ec\u300c\u7b2c\u4e8c\u5929\u4ed6\u7167\u5e38\u53bb\u83dc\u5e02\u573a\u300d\u4e24\u5904\u590d\u8bfb | \u6539\u5199 |\n| 10 | \u517b\u8001\u9662/\u8fdc\u5c45\u8d61\u517b ext_b \u4e0e\u4e3b\u5e72\u91cd\u590d\u540c\u4e00\u62cd | \u6539\u5199 |\n\n**\u56de\u626b\u5168\u6c60**\uff08\u6539\u4e00\u5904 \u2260 \u5168\u6c60\u4fee\u5b8c\uff09\uff1a10 \u4e2a\u65b9\u5411\u5168\u67e5 \u2192 **\u8de8\u5b57\u6bb5\u590d\u8bfb 0 \u5904\u3001\u91d1\u53e5\u590d\u8bfb 0 \u5904**\uff1b\u5fae\u5934\u6761 content CJK \u5b57\u6570 **10/10 \u843d\u5728 150\u2013250**\u3002\n\n## \u2705 \u4fee\u590d\u540e\u7684\u590d\u6838\uff08\u9694\u79bb harness\uff0c\u751f\u4ea7 history \u96f6\u6c61\u67d3\uff09\n\n- `lint_content_consistency.py` **exit 0**\uff5c`check_pool_type_false_positives.py` **exit 0\u300c\u65e0\u547d\u4e2d\u300d**\uff5c`audit_rendered_article.py` **exit 0\u300c\u5168\u90e8\u68c0\u67e5\u901a\u8fc7\u300d**\uff5c\u4e09\u4e2a\u6e90\u6587\u4ef6 `py_compile` \u5168\u8fc7\n- \u751f\u4ea7 `topic_history.json` **diff \u4e3a\u7a7a**\uff08harness \u7528\u4e34\u65f6 history\uff0c\u672a\u6c61\u67d3\u751f\u4ea7\uff09\n- \u26a0\ufe0f \u4e00\u5904\u5de5\u5177\u7528\u6cd5\u5751\u5df2\u8bb0\u5f55\uff1a`lint --pool` \u5fc5\u987b\u6307\u5411**\u751f\u6210\u5668\u811a\u672c\u672c\u8eab**\uff08`toutiao-article-daily.py`\uff09\uff0c\u6307\u5411\u6c60\u6570\u636e\u6587\u4ef6\u4f1a exit 2 \u2014\u2014 exit 2 = \u53c2\u6570\u7528\u9519\uff0c\u4e0d\u662f\u5185\u5bb9\u6709\u95ee\u9898\uff0c\u5207\u52ff\u636e\u6b64\u6539\u6587\u6848\n\n## \ud83d\udccc \u9700\u8981\u7559\u610f\u7684\u4e00\u5904\u672a\u5b8c\u6210\u9879\n\n\u6700\u540e\u4e00\u6b65\u4fee\u590d\uff08\u628a\u300c\u70e7\u672c\u5b50\u300d\u5728 `story_a_ending` \u4e0e `ext_a` \u7684**\u91cd\u590d\u53d9\u8ff0**\u6539\u4e3a\u53e6\u4e00\u4e2a\u89d2\u5ea6\uff09\u5df2\u5199\u5165\u6e90\u7801\u5e76 `py_compile` \u901a\u8fc7\uff0c\u4f46**\u6539\u5b8c\u540e\u7684\u6700\u7ec8 harness \u590d\u6e32\u67d3\u4e0e\u590d\u6838\u672a\u53ca\u8dd1\u5b8c**\uff08\u5de5\u5177\u8c03\u7528\u989d\u5ea6\u5230\u9876\uff09\u3002\u8be5\u6539\u52a8\u65b9\u5411\u6b63\u786e\u3001\u8bed\u6cd5\u6709\u6548\uff0c\u4f46\u5efa\u8bae\u660e\u665a\u9996\u8dd1\u540e\u786e\u8ba4\u4e00\u6b21\uff1a\n\n```\npython3 ~/.hermes/skills/productivity/content-platforms/scripts/audit_rendered_article.py \\\n  ~/.hermes/cron/outbox/toutiao/<\u660e\u665a\u4ea7\u7269>.html --pool ~/.hermes/cron/scripts/toutiao-article-daily.py\n```\n\n\uff08\u9000\u51fa\u7801\u5355\u72ec\u770b\uff0c\u522b\u7528\u7ba1\u9053\u541e\u6389\u3002\uff09\n\n## \ud83d\udcdd \u6301\u4e45\u5316\u8bb0\u5f55\n\n`~/.hermes/cron/outbox/toutiao/README.md` \u5df2\u8ffd\u52a0 `## 2026-11-10\uff08\u6301\u7eed\u4e2d \u2014 \u7b2c78\u5929\uff09`\uff0c\u6807\u9898\u6570 **34 \u2192 35**\uff0c\u65e0\u4e71\u7801\u5b57\u7b26 \u2014\u2014 \u8de8\u4f1a\u8bdd\u7684\u6545\u969c\u94fe\u672a\u65ad\u3002",
+      "last_delivery_error": null,
+      "deliver": "feishu:oc_39c71fb71c2db9be002545966567498f",
       "origin": {
         "platform": "feishu",
         "chat_id": "oc_39c71fb71c2db9be002545966567498f",
         "chat_name": "oc_39c71fb71c2db9be002545966567498f",
-        "thread_id": "omt_19705b69670f5b81"
+        "thread_id": null
       },
       "enabled_toolsets": null,
       "workdir": null
@@ -104,24 +104,24 @@
       "schedule_display": "0 2 * * *",
       "repeat": {
         "times": null,
-        "completed": 133
+        "completed": 168
       },
       "enabled": true,
       "state": "scheduled",
       "paused_at": null,
       "paused_reason": null,
       "created_at": "2026-05-27T12:31:50.325994+08:00",
-      "next_run_at": "2026-10-08T02:00:00+08:00",
-      "last_run_at": "2026-10-07T02:00:51.798281+08:00",
+      "next_run_at": "2026-11-12T02:00:00+08:00",
+      "last_run_at": "2026-11-11T02:00:51.771601+08:00",
       "last_status": "ok",
       "last_error": null,
-      "last_delivery_error": "delivery error: Feishu send failed: [99992402] field validation failed",
-      "deliver": "origin",
+      "last_delivery_error": null,
+      "deliver": "feishu:oc_39c71fb71c2db9be002545966567498f",
       "origin": {
         "platform": "feishu",
         "chat_id": "oc_39c71fb71c2db9be002545966567498f",
         "chat_name": "oc_39c71fb71c2db9be002545966567498f",
-        "thread_id": "omt_19703695ee4f9be0"
+        "thread_id": null
       },
       "enabled_toolsets": null,
       "workdir": null
@@ -230,15 +230,15 @@
       "schedule_display": "0 10 * * *",
       "repeat": {
         "times": null,
-        "completed": 129
+        "completed": 164
       },
       "enabled": true,
       "state": "scheduled",
       "paused_at": null,
       "paused_reason": null,
       "created_at": "2026-05-30T10:58:38.563097+08:00",
-      "next_run_at": "2026-10-07T10:00:00+08:00",
-      "last_run_at": "2026-10-06T10:00:18.869759+08:00",
+      "next_run_at": "2026-11-11T10:00:00+08:00",
+      "last_run_at": "2026-11-10T10:00:34.419467+08:00",
       "last_status": "error",
       "last_error": "Script not found: /home/ubuntu/.hermes/scripts/cron/scripts/xhs-escape-weekend.py",
       "last_delivery_error": null,
@@ -272,15 +272,15 @@
       "schedule_display": "0 7 * * *",
       "repeat": {
         "times": null,
-        "completed": 129
+        "completed": 165
       },
       "enabled": true,
       "state": "scheduled",
       "paused_at": null,
       "paused_reason": null,
       "created_at": "2026-05-30T10:58:41.902182+08:00",
-      "next_run_at": "2026-10-07T07:00:00+08:00",
-      "last_run_at": "2026-10-06T07:00:16.851974+08:00",
+      "next_run_at": "2026-11-12T07:00:00+08:00",
+      "last_run_at": "2026-11-11T07:00:55.529943+08:00",
       "last_status": "error",
       "last_error": "Script not found: /home/ubuntu/.hermes/scripts/cron/scripts/wechat-article-daily.py",
       "last_delivery_error": null,
@@ -314,15 +314,15 @@
       "schedule_display": "0 3 * * *",
       "repeat": {
         "times": null,
-        "completed": 130
+        "completed": 165
       },
       "enabled": true,
       "state": "scheduled",
       "paused_at": null,
       "paused_reason": null,
       "created_at": "2026-05-30T16:04:13.051517+08:00",
-      "next_run_at": "2026-10-08T03:00:00+08:00",
-      "last_run_at": "2026-10-07T03:00:52.724689+08:00",
+      "next_run_at": "2026-11-12T03:00:00+08:00",
+      "last_run_at": "2026-11-11T03:00:52.679936+08:00",
       "last_status": "error",
       "last_error": "Script not found: /home/ubuntu/.hermes/scripts/cron/scripts/skill-backup.sh",
       "last_delivery_error": null,
@@ -356,15 +356,15 @@
       "schedule_display": "0 4 * * *",
       "repeat": {
         "times": null,
-        "completed": 130
+        "completed": 165
       },
       "enabled": true,
       "state": "scheduled",
       "paused_at": null,
       "paused_reason": null,
       "created_at": "2026-05-30T16:04:29.930758+08:00",
-      "next_run_at": "2026-10-08T04:00:00+08:00",
-      "last_run_at": "2026-10-07T04:00:53.964200+08:00",
+      "next_run_at": "2026-11-12T04:00:00+08:00",
+      "last_run_at": "2026-11-11T04:00:53.916001+08:00",
       "last_status": "error",
       "last_error": "Script not found: /home/ubuntu/.hermes/scripts/agency-backup/scripts/agency-backup.sh",
       "last_delivery_error": null,
@@ -400,15 +400,15 @@
       "schedule_display": "0 10 * * *",
       "repeat": {
         "times": null,
-        "completed": 122
+        "completed": 157
       },
       "enabled": true,
       "state": "scheduled",
       "paused_at": null,
       "paused_reason": null,
       "created_at": "2026-06-07T22:49:43.450929+08:00",
-      "next_run_at": "2026-10-07T10:00:00+08:00",
-      "last_run_at": "2026-10-06T10:00:41.453194+08:00",
+      "next_run_at": "2026-11-11T10:00:00+08:00",
+      "last_run_at": "2026-11-10T10:00:47.643377+08:00",
       "last_status": "ok",
       "last_error": null,
       "last_delivery_error": null,
@@ -424,5 +424,5 @@
       "profile": null
     }
   ],
-  "updated_at": "2026-10-07T04:00:53.964591+08:00"
+  "updated_at": "2026-11-11T07:00:55.530362+08:00"
 }
