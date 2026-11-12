@@ -47,6 +47,22 @@
        合法提到故事A 的人物。必须按 **A对A、B对B 配对比较**。
      - **人名抽取不许跨功能字**，否则抽出「房管局」「张问刘婶」。
 
+跨字段复读类（2026-11-07 ~ 2026-11-12 新增，同样全程绿灯）：
+
+  8. HOOK_PROMISE（钩子/标题承诺不兑现）
+     钩子承诺的引语与数字，正文一个字都没写。
+     ⚠️ 装配口径必须按池型分叉：微头条池正文在 `content`，长文在 `story_*`。
+  9. GOLDEN_ECHO（金句被正文整句复读）
+     同一句金句在 viewpoint / action / story_*_ending 里逐字复读。
+     ⚠️ 判定范围必须含 `story_a_ending` / `story_b_ending`。
+ 10. GOLDEN_ECHO_PRONOUN（代词人称变体导致的准复读）🆕 2026-11-12
+     金句写「你管不了」、正文写「我管不了」—— **一字之差，17 字重合**，
+     但读者眼里是同一句话。逐字比对看不见中文代词可互换这件事。
+     修法：`_normalize_pronouns()` 把中文**单字代词**（你/我/您/咱/他/她）
+     归一成同一占位符后再算公共子串（阈值 ≥10 字）。
+     ⚠️ `longest_common()` 已从 `check_golden_echo` 的局部函数**提升为模块级**
+     —— 新旧两条规则共用同一份实现，复制两份必然漂移。
+
 用法
 ----
     python3 lint_content_consistency.py                          # 默认头条号池
@@ -805,22 +821,6 @@ def check_golden_echo(topic, ext):
     def cjk(s):
         return ''.join(re.findall(r'[一-鿿]', s or ''))
 
-    def longest_common(a, b, minlen):
-        """返回 a、b 的最长公共连续子串（>= minlen），没有则返回 ''。"""
-        if not a or not b or len(a) < minlen:
-            return ''
-        best = ''
-        for i in range(len(a) - minlen + 1):
-            sub = a[i:i + minlen]
-            if sub not in b:
-                continue
-            k = minlen
-            while i + k < len(a) and a[i:i + k + 1] in b:
-                k += 1
-            if k > len(best):
-                best = a[i:i + k]
-        return best
-
     def g(k):
         return str(topic.get(k, '') or '')
 
@@ -858,6 +858,106 @@ def check_golden_echo(topic, ext):
 FIELD_CHECKERS = (check_sum_vs_total, check_fraction, check_period,
                   check_split_vs_sum, check_inherited_total,
                   check_period_total)
+
+
+def longest_common(a, b, minlen):
+    """返回 a、b 的最长公共连续子串（>= minlen），没有则返回 ''。
+
+    ⚠️ 2026-11-12：从 check_golden_echo 的**局部函数**提升为模块级 ——
+    新增的 check_golden_echo_pronoun 需要同一份实现，复制两份必然漂移。
+    """
+    if not a or not b or len(a) < minlen:
+        return ''
+    best = ''
+    for i in range(len(a) - minlen + 1):
+        sub = a[i:i + minlen]
+        if sub not in b:
+            continue
+        k = minlen
+        while i + k < len(a) and a[i:i + k + 1] in b:
+            k += 1
+        if k > len(best):
+            best = a[i:i + k]
+    return best
+
+
+# ---------------------------------------------------------------- 缺陷十六：人称变体复读
+# 🆕 2026-11-12 实测：GOLDEN_ECHO 用**逐字**公共子串判定，金句写「你管不了」、
+# 正文写「我管不了」时，一个字的代词差异就让 17 字重合被判为「未命中」。
+# 实测实例（再婚财产）：golden1「房子给谁你管不了孝顺给谁你也管不了」 vs
+# story_b_ending「房子给谁我管不了，孝顺给谁我也管不了」—— 读者看到的是同一句话。
+#
+# 根因：**代词人称变体**（你/我/您/咱/他/她）在中文口语里可以互换，
+# 逐字比对看不见它们是同一句话。
+#
+# 修法：比对前先把代词**归一**成同一个占位符再算公共子串。
+# 阈值沿用 GOLDEN_ECHO_MINLEN（10），归一后仍要求 ≥10 字连续重合 ——
+# 避免把「不是孝顺」这类常见词组误报。
+GOLDEN_ECHO_PRONOUNS = {'你', '我', '您', '咱', '他', '她', '您们', '他们', '她们'}
+GOLDEN_ECHO_NORMALIZED_MINLEN = 10
+
+
+def _normalize_pronouns(text):
+    """把中文代词人称变体归一成同一个占位符。
+
+    只归一**单字代词**，不碰「他们/她们」这类词组（它们已经是固定搭配，
+    归一会引入假阳性）。
+    """
+    return ''.join('〇' if ch in GOLDEN_ECHO_PRONOUNS else ch
+                   for ch in (text or ''))
+
+
+def _cjk_only(text):
+    """只保留 CJK 汉字（与 check_golden_echo 内的同名局部函数口径一致）。"""
+    return ''.join(re.findall(r'[一-鿿]', text or ''))
+
+
+def check_golden_echo_pronoun(topic, ext):
+    """🔴 GOLDEN_ECHO_PRONOUN：代词人称变体导致的「准复读」。
+
+    2026-11-12 实测新增的第十六类缺陷（跨字段失配的变体）：
+    `GOLDEN_ECHO` 用逐字比对，金句说「你管不了」、正文说「我管不了」——
+    一字之差，17 字重合被判为「没有复读」，但读者看到的是同一句话。
+
+    判定口径：把中文代词（你/我/您/咱/他/她）归一后，金句与正文任一字段
+    存在 ≥ GOLDEN_ECHO_NORMALIZED_MINLEN 字的连续公共子串即报。
+
+    ⚠️ 池型分叉：微头条池没有 golden1/2/3 → 直接跳过（否则整池假阳性）。
+    """
+    issues = []
+    minlen = GOLDEN_ECHO_NORMALIZED_MINLEN
+
+    def g(k):
+        return str(topic.get(k, '') or '')
+
+    if not (g('golden1') or g('golden2') or g('golden3')):
+        return issues
+
+    ea, eb = _ext_pair(ext) if ext else ('', '')
+    body_fields = {
+        'story_a': g('story_a'),
+        'story_a_dialogue': g('story_a_dialogue'),
+        'story_a_ending': g('story_a_ending'),
+        'story_b': g('story_b'),
+        'story_b_ending': g('story_b_ending'),
+        'viewpoint': g('viewpoint'),
+        'action': g('action'),
+        '故事A扩写': ea,
+        '故事B扩写': eb,
+    }
+    for gk in ('golden1', 'golden2', 'golden3'):
+        gc = _normalize_pronouns(_cjk_only(g(gk)))
+        if len(gc) < minlen:
+            continue
+        for fname, ftext in body_fields.items():
+            if not ftext:
+                continue
+            run = longest_common(gc, _normalize_pronouns(_cjk_only(ftext)), minlen)
+            if run:
+                issues.append(('GOLDEN_ECHO_PRONOUN',
+                               f'金句 {gk} 与「{fname}」只差人称代词，实际是同一句话：{run}',
+                               run))
+    return issues
 
 
 # ---------------------------------------------------------------- 装配
@@ -1026,6 +1126,14 @@ def lint(pools, extensions):
             for code, msg, ctx in check_golden_echo(t, ext):
                 issues.append({'pool': pool_name, 'direction': direction,
                                'field': '金句复读', 'code': code,
+                               'message': msg, 'context': ctx.strip()})
+
+            # ⑦ 金句人称变体复读：只差「你/我」一个字的准复读
+            #    🆕 2026-11-12 新增。GOLDEN_ECHO 逐字比对看不见代词变体 ——
+            #    「你管不了」vs「我管不了」在读者眼里是同一句话。
+            for code, msg, ctx in check_golden_echo_pronoun(t, ext):
+                issues.append({'pool': pool_name, 'direction': direction,
+                               'field': '金句复读(人称变体)', 'code': code,
                                'message': msg, 'context': ctx.strip()})
     return issues
 
@@ -1265,6 +1373,31 @@ def _self_test():
     if check_golden_echo({'title': '微头条标题', 'content': '这是一条微头条正文。',
                           'micro_dialogue': '弟弟说：我不是不帮。'}, None):
         failed.append('微头条池（无 golden 字段）被误报为金句复读')
+
+    # ⑨ GOLDEN_ECHO_PRONOUN：只差人称代词的「准复读」
+    #    正例不报：金句与正文各说各的
+    ok2 = check_golden_echo_pronoun(
+        {'golden1': '钱是流水，房子是根。钱花完就没了。',
+         'golden2': '孝顺分两种：给钱的孝顺让你饿不死。',
+         'golden3': '我不把后半辈子押在一个不能到场的人身上。',
+         'viewpoint': '子女不在身边，不是孩子的错。',
+         'action': '算清楚每月缺口，别全靠汇款。'},
+        None)
+    if ok2:
+        failed.append('没有复读的金句被误报为人称变体复读')
+    # 反例必报：golden1 说「你管不了」，正文说「我管不了」—— 只差一个字
+    bad3 = check_golden_echo_pronoun(
+        {'golden1': '房子给谁你管不了孝顺给谁你也管不了。',
+         'golden2': '孝顺分两种：给钱的孝顺让你饿不死。',
+         'golden3': '我不把后半辈子押在一个不能到场的人身上。',
+         'story_b_ending': '他图的是我闭上眼那天孩子们还在打电话。房子给谁我管不了孝顺给谁我也管不了。'},
+        None)
+    if not bad3:
+        failed.append('金句只差人称代词的复读，未被发现')
+    # ⚠️ 池型分叉：微头条池没有 golden1/2/3 → 不得整池假阳性
+    if check_golden_echo_pronoun({'title': '微头条标题', 'content': '这是一条微头条正文。',
+                                  'micro_dialogue': '弟弟说：我不是不帮。'}, None):
+        failed.append('微头条池（无 golden 字段）被误报为人称变体复读')
 
     if failed:
         print('❌ 解析器自检失败 —— 工具本身有问题，不是内容有问题：', file=sys.stderr)

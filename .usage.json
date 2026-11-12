@@ -29,27 +29,27 @@
     "archived_at": null,
     "created_at": "2026-05-26T16:41:37.758733+00:00",
     "created_by": "agent",
-    "last_patched_at": "2026-11-11T12:47:08.067911+00:00",
-    "last_used_at": "2026-11-11T12:47:05.163651+00:00",
-    "last_viewed_at": "2026-11-11T12:47:05.160032+00:00",
-    "patch_count": 158,
+    "last_patched_at": "2026-11-12T13:05:56.842908+00:00",
+    "last_used_at": "2026-11-12T13:06:02.794231+00:00",
+    "last_viewed_at": "2026-11-12T13:06:02.788781+00:00",
+    "patch_count": 163,
     "pinned": false,
     "state": "active",
-    "use_count": 326,
-    "view_count": 168
+    "use_count": 333,
+    "view_count": 174
   },
   "cron-job-debugging": {
     "archived_at": null,
     "created_at": "2026-07-03T23:15:48.543504+00:00",
     "created_by": "agent",
     "last_patched_at": "2026-11-11T12:47:30.011403+00:00",
-    "last_used_at": "2026-11-11T12:47:32.023790+00:00",
-    "last_viewed_at": "2026-11-11T12:47:32.020103+00:00",
+    "last_used_at": "2026-11-12T12:31:21.252042+00:00",
+    "last_viewed_at": "2026-11-12T12:31:21.248104+00:00",
     "patch_count": 166,
     "pinned": false,
     "state": "active",
-    "use_count": 202,
-    "view_count": 202
+    "use_count": 203,
+    "view_count": 203
   },
   "daily-report": {
     "archived_at": null,
