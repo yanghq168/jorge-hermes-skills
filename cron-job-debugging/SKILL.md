@@ -863,15 +863,22 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   commonly left-stale field in a long-lived script. Bump them in the same edit as the
   feature they describe.
 
-- **⚠️ Two pools that rotate in lockstep will eventually pair a story with its own twin (2026-10-31).** Cross-day LRU dedup guarantees a topic doesn't repeat *itself* — it says nothing about a long-form topic and a micro topic colliding *with each other*. On `toutiao-article-daily.py` six of the ten micro entries retell the **same story** as a long-form entry (same protagonist, same beats: 老周头/随份子/烧本子, 大伯/供学费/断联, 住院/分家产, 房产证/过户, 立遗嘱/子女沉默, 养老院/算账). Both pools are 10 items and LRU advances them **in lockstep**, so a micro topic and its long-form twin land on the same night ~1/10 of the time — the reader reads the same story twice in one email. **Measured: 28/40 random rotation phases hit at least one collision; 264/2400 nights (11%) duplicated.** The tell is in the *pool*, not the output: two direction names that sound different (`人情往来` vs `随礼人情`) can be the same story. **Fix:** declare an explicit shadow map and exclude the twins when picking the companion pool:
-  ```python
-  SHADOW_MAP = {'人情往来': '随礼人情', '亲戚帮衬': '亲戚恩怨', ...}  # micro -> long
-  def _pick_micro_index(used, history_path=None, exclude_directions=()):
-      used_dirs = {...} | {str(d) for d in (exclude_directions or ())}
-      ...
-  micro_articles = generate_micro_articles(long_direction=topic['direction'])
-  ```
-  **Verify with the multi-phase harness, not a single run** — a single seeded run missed it entirely (0/20 collisions) while 28/40 phases hit it. The metric that matters is *collision nights / total nights across many phases*, not "did tonight collide". After the fix: **264/2400 → 0/2400**, with direction coverage still 10/10 on both pools. Also add a checklist line (it renders to the reader) so the rule is visible in the product.
+- **⚠️ Two pools that rotate in lockstep will eventually pair a story with its own twin (2026-10-31; superseded 2026-11-15).** Cross-day LRU dedup guarantees a topic doesn't repeat *itself* — it says nothing about a long-form topic and a micro topic colliding *with each other*. On `toutiao-article-daily.py` six of the ten micro entries retell the **same story** as a long-form entry (same protagonist, same beats: 老周头/随份子/烧本子, 大伯/供学费/断联, 住院/分家产, 房产证/过户, 立遗嘱/子女沉默, 养老院/算账). Both pools are 10 items and LRU advances them **in lockstep**, so a micro topic and its long-form twin land on the same night ~1/10 of the time — the reader reads the same story twice in one email. **Measured: 28/40 random rotation phases hit at least one collision; 264/2400 nights (11%) duplicated.** The tell is in the *pool*, not the output: two direction names that sound different (`人情往来` vs `随礼人情`) can be the same story.
+  - **🔴 2026-11-15 更新：原修法（声明 shadow map 排除孪生）只是半程，最终修法是「换掉孪生 + 动态守卫」配套做。**
+    原因：shadow map 只能挡住**当晚**的碰撞；且守卫夜数若写死，会短于微头条
+    轮换周期（10 条 ÷ 2 条/晚 = 5 夜）⇒ 第 4、5 夜的孪生故事重新漏进来。
+    **实测**：11-14 微头条 = 11-10 长文《随礼人情》同一故事；
+    **11-15 微头条 = 11-11 长文《养老院》同一故事（距离 4 夜）**。
+    最终修法：① **换掉 6 条孪生微头条**（根治，`SHADOW_MAP` 收缩为空）
+    ② **守卫窗口动态推导** `ceil(池大小/每晚条数)+1`（防复发）。
+    **验证：修复前 12/60 夜碰撞 → 修复后 0/60，两池覆盖仍 10/10。**
+    详见 `content-platforms/references/guard-window-vs-rotation-period.md`。
+  - **⚠️ 检测脚本的回看窗口必须 ≥ 被测池的轮换周期** —— 原手写 `range(1,4)`
+    只看 3 夜 ⇒ 第 4、5 夜的碰撞统计不到，「碰撞 0/60」是假绿。
+  - **⚠️ 证明修复生效要跑「反向对照」**：只跑「现在碰撞 0 次」无法区分
+    「改好了」与「检测器坏了」；必须用旧池 + 旧映射 + 旧守卫跑一遍作对照。
+    已封装：`content-platforms/scripts/verify_cross_night_collisions.py --before-script <旧脚本备份>`。
+  - Also add a checklist line (it renders to the reader) so the rule is visible in the product.
 
 - **⚠️ Measure the ASSEMBLED product, not an intermediate return value (2026-10-30).**
   A generator can look broken in an audit when the audit simply measures the wrong
@@ -1031,6 +1038,30 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   - **不要让「改了但没验证」的状态被后续会话当成「已验证」** —— 下一晚会读 README/报告；
     如果它写「已修复」而实际未验证，缺陷会被当成已闭合而永远不再查。
   - ⚠️ 验证时**退出码要单独看**，别用管道吞掉（`audit_rendered_article.py` exit 0=干净 / 1=有问题）。
+- **🔴 2026-11-15 实测：改生产源码时「`py_compile` 通过」≠「改动生效」—— 三个陷阱**
+  今晚落地跨夜碰撞修复时连续踩到三个坑，**症状都是编译通过但行为没变 / 直接语法错**：
+  1. **`str.replace(old, new, 1)` 可能命中 docstring 而不是代码** —— 文件头升级说明里
+     常出现与代码一样的字符串（本次 `SHADOW_GUARD_NIGHTS = 3` 在 docstring 和代码里各有一份），
+     `count=1` 命中了 docstring，**真正的代码处一个字没改** ⇒ 运行时值仍是旧值。
+     **修法**：锚点**必须带上下文**（前后各一行）；改完**回读断言**，并
+     **import 一次打印关键常量**确认它等于期望的新值。
+  2. **按花括号深度切分 list 字面量再 join，会留下孤立逗号** —— 切出的 entry 片段
+     带着尾逗号，首条 entry 的前导逗号又残留在旧 block 里 ⇒
+     `POOL = [\n    ,\n    {...` ⇒ `SyntaxError: invalid syntax`。
+     **修法**：批量改 list/dict 字面量时**重新生成整个字面量**，不要切片段再拼接。
+  3. **锚点照抄记忆必失败** —— 源码里是 `\'` 转义形式，或多/少一个字。
+     **修法**：匹配失败先 `src.find(prefix)` 打印真实上下文，别猜原文。
+  - **通用规则：改完源码必须做一次「运行时行为断言」** —— 最省事的形态 =
+    **改完 import 一次、打印关键常量/配置值**，确认它等于你期望的新值。
+    `py_compile` 只证明语法没错，证明不了改到了该改的地方。
+- **🔴 2026-11-15 实测：证明「改动带来了行为变化」要跑反向对照，不能只跑修复后**
+  「现在结果正确」无法区分「改好了」与「检测器坏了 / 本来就没这问题」。
+  正确做法：同一份种子 history、同一段模拟、同一份检测口径，**只换被改的参数**，
+  跑出「修复前」与「修复后」两组数据对比。
+  ⚠️ 反面对照的配置**必须从备份脚本 import 真实旧对象** —— 手搓 stub（只填
+  direction/title）会在渲染时 `KeyError: 'tags'` 炸掉。
+  ⚠️ 每组模拟开头要 `shutil.copy` 重置种子，否则第二轮跑的是第一轮的后状态、不可比。
+  已封装为 `content-platforms/scripts/verify_cross_night_collisions.py`（`--before-script` 做对照）。
 
 ## Cross-reference: known recurring outage
 
@@ -1220,6 +1251,7 @@ Related case-detail references:
 - `scripts/send_email_with_outbox.py` — **可直接 import 的发送封装**（`send_email_with_outbox`）：给裸 `smtplib.SMTP_SSL().login().sendmail()` 补上「瞬时故障重试一次（3s backoff）+ 最终失败落盘 outbox 并把绝对路径写进错误串」两段逻辑。cron 脚本里 `from send_email_with_outbox import send_email_with_outbox as send_email` 即可，行为与本技能 §6 的模板一致（2026-08-25 第三次 QQ 授权码失效后写的）
 - `scripts/resend_outbox_html.py` — 授权码修复后补发 outbox 里的历史 HTML
 - `scripts/probe_smtp.py` — SMTP 凭据探针（465-SSL + 587-STARTTLS，判别 535 / silent-reject / connect 失败三种形态）
+- `content-platforms/scripts/verify_cross_night_collisions.py` — **跨夜同故事碰撞验证器**：检测内容 cron 的「长文 ↔ 微头条」两池跨夜撞同一故事。**支持 `--before-script` 反向对照**（用旧脚本备份跑「修复前」配置，证明改动真的带来了行为变化，而不只跑「现在 0 次」）。全程只读生产 history，零污染
 - `references/smtp-credential-failure-case-study.md` — full SMTP transcripts
 - `references/case-m-last-status-masking.md` — `last_status=ok` masking
 - `references/feishu-stale-thread-id-delivery-failure.md` — stale `omt_` thread_id
