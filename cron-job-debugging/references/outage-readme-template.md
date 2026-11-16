@@ -70,6 +70,43 @@ The README is the **durable outage log** that survives across:
 
 Rewriting the file on each run destroys this property. Always `cat >> README.md <<EOF ... EOF` in shell, or `Path("README.md").open("a")` in Python.
 
+## 🔴 NEVER use read-modify-write to append (2026-11-16 accident)
+
+`read_file` has a **default `limit` of 500 lines and silently truncates**; `write_file` **overwrites the whole file**.
+Doing `read_file` → mutate → `write_file` to append one section destroyed **14 history entries**
+in one go (README went 822 lines → 513 lines on 2026-11-16).
+
+**Use one of these instead:**
+```bash
+cat >> "$path" <<'HERMES_EOF'
+
+## YYYY-MM-DD（持续中 — 第N天）
+- Symptom: ...
+HERMES_EOF
+```
+```python
+from pathlib import Path
+with Path(path).open('a', encoding='utf-8') as fh:
+    fh.write(entry)
+```
+
+If you must read-modify-write: pass an explicit `limit` >= the file's line count AND compare
+`r['total_lines']` against it — otherwise you are silently truncating.
+
+**Recovery when this happens:** `~/.hermes/state.db` → `messages.tool_calls` holds the full
+arguments of every past `write_file` / `execute_code` call, so each night's section can be
+recovered verbatim and the file rebuilt. See
+`references/readme-append-truncation-disaster.md` for the recovery code and the three
+pitfalls (JSON escaping layer, where the text lives per tool type, picking the complete
+copy among same-night duplicates).
+
+**Post-append verification (all three):**
+```bash
+grep -c "^## " "$path"          # must be exactly +1 vs before
+grep -n "^## " "$path" | tail -3   # last three headings continuous
+grep -cP '\x{FFFD}' "$path"     # mojibake must be 0
+```
+
 ## What goes in, not in (per entry)
 
 IN (each failed night):

@@ -104,6 +104,33 @@ open(out, "w", encoding="utf-8").write(full)
 测试就是自己复刻了一遍排除集，结果测出「修复无效」而实际是**测试脚本
 没走真实路径**。harness 只做「强制选中 + 换状态路径」，其余全部走生产代码。
 
+#### 🔴 2026-11-16 实测：两个 API 陷阱（照抄上次会话的调用方式会直接崩）
+
+**① `generate_article()` 返回的是三元组，不是字符串。**
+
+```python
+html_content, plain_text, topic = T.generate_article()   # ✅
+full = html_content + '\n'.join(m['html'] for m in micros)  # ✅
+```
+写成 `full = T.generate_article() + ...` ⇒
+`TypeError: can only concatenate tuple (not "str") to tuple`。
+
+**② `generate_micro_articles()` 的签名会变 —— 先 `inspect.getsource()` 确认。**
+
+2026-11-12 记录的签名是
+`generate_micro_articles(long_direction=topic['direction'])`；
+2026-11-16 实测该函数**不接受参数**，且内部走的是
+`_pick_micro_index(used_indices, exclude_directions=shadow_dirs)`
+（**不是** `_pick_lru` —— `_pick_lru` 是被 `_pick_micro_index` 间接调用的）。
+
+```python
+import inspect
+print(inspect.getsource(T.generate_micro_articles)[-700:])
+```
+
+**通则：harness 里任何对生产函数的调用，动手前先 `inspect.getsource()` 看一眼真实签名，
+不要凭上一轮的记忆写。** 脚本改版后旧调用方式会以 TypeError 的形式炸出来。
+
 ### ⑤ 对隔离产物跑审计 + 跑修复点断言
 
 ```python

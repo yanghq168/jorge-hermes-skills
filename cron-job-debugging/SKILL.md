@@ -433,7 +433,23 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   remaining analysis as a bonus.
   Also note the README heading count is the verification: `grep -c "^## "` must go up
   by exactly 1 per session — if it didn't, the entry was never written.
-  - **🆕 2026-11-08 复现：这是第二次因会话被截断而漏记 —— 而且漏的不止一夜。**
+  - **🔴 2026-11-16 实测：「读-改-写」追加 README 会截断日志 —— `read_file` 默认只读前 500 行且静默截断，`write_file` 全量覆盖 ⇒ 一次追加就把 14 段历史日志删掉了。**
+    当晚要用 `read_file` + `write_file` 给 `outbox/toutiao/README.md` 追加第 84 天那一段，
+    结果 README 从 **822 行被截断到 513 行**（11-02～11-15 共 14 段消失）——
+    `read_file` 的 `limit` 默认 500 行且**超限不报错**，`write_file` 又整体覆盖。
+    - **规则：只增不减的日志文件（outbox README / `topic_history.json` / `jobs.json`）只追加，绝不读改写。**
+      用 `cat >> file <<'EOF'` 或 `Path(p).open('a')`。若非要用 `read_file`，
+      必须显式给足 `limit` 并**比较 `r['total_lines']`**——不比较就会静默截断。
+    - **✅ 恢复方法（本次实际有效）：`~/.hermes/state.db` 的 `messages.tool_calls` 字段保存了每次工具调用的完整入参。**
+      每一晚的 README 追加都是当晚 agent 的一次 `write_file`/`execute_code` 调用，
+      原文就在 `tool_calls` 里 ⇒ 逐段还原、重建、去重后，
+      README 恢复为 **41 个标题、第69→84天连续无缺口、乱码 0**。
+      取值方式：`json.loads(tc)[0]['function']['arguments']` →
+      `write_file` 取 `['content']`、`execute_code` 取 `['code']`（entry 藏在其三引号块里）。
+      ⚠️ 还原时要按「`\n- ` 行数 × 长度」选最完整的一份，并过滤掉工具输出片段。
+    - **预防清单**：追加后必须 ① `grep -c "^## "` 比对追加前（须 **+1**）② `grep -n "^## " | tail -3` 看最后三个标题是否连续 ③ 乱码扫描为 0。
+    - 完整事故记录、还原代码、三个坑（JSON 转义层 / 取值方式 / 同夜多候选）→ `references/readme-append-truncation-disaster.md`
+  - **⚠️ 2026-11-08 复现：这是第二次因会话被截断而漏记 —— 而且漏的不止一夜。**
     11-07 会话被工具调用上限截断，没能追加 README；11-08 会话开头发现
     README 最后一条是 11-06（**第74天**），而 11-07（第75天）**整夜缺失**。
     处理方式：按上面「backfill EVERY gap night」补记 11-07，并追加 11-08。
@@ -1256,6 +1272,7 @@ Related case-detail references:
 - `references/case-m-last-status-masking.md` — `last_status=ok` masking
 - `references/feishu-stale-thread-id-delivery-failure.md` — stale `omt_` thread_id
 - `references/outage-readme-template.md` — README entry template
+- `references/readme-append-truncation-disaster.md` — **2026-11-16 事故：「读-改-写」追加 README 把 822 行截成 513 行、14 段历史消失**。含 `read_file` 500 行静默截断的机制、`cat >>` / `open('a')` 的正确写法、**从 `~/.hermes/state.db` 的 `messages.tool_calls` 逐段还原**的完整代码（三个坑：JSON 转义层 / 按工具类型取值 / 同夜多候选去重）、以及三道追加后核验。⚠️ 只增不减的日志文件（outbox README / `topic_history.json` / `jobs.json`）**只追加，绝不读改写**
 - `references/qq-smtp-rate-limit-pitfall.md` — rate-limit variant
 - `references/script-not-found-case-study.md` — path-resolution case study
 - `productivity/content-platforms/scripts/audit_rendered_article.py` — **产物审计脚本**：测已渲染 HTML 的正文中文数、结构完整性、配图数与 `no text`、标签数、微头条 `content` 字数区间（`--pool` 核对选题池，`--json` 机器可读）。改生成器后跑它，别手写正则数字数
