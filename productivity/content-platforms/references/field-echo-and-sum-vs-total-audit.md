@@ -160,22 +160,54 @@ full = html_content + '\n'.join(m['html'] for m in micros)  # ✅
 
 ### ② `generate_micro_articles()` 的参数名会变
 
-2026-11-12 记录的签名是
-`generate_micro_articles(long_direction=topic['direction'])`，
-2026-11-16 实测该函数**不接受参数**，且内部走的是
-`_pick_micro_index(used_indices, exclude_directions=shadow_dirs)`
-（**不是** `_pick_lru`）。
+⚠️ **2026-11-17 再次实测修正（本节上一版记录有误）**：
+2026-11-16 当晚记的是「该函数**不接受参数**」—— **错了**。
+2026-11-17 实测真实签名是：
 
-**做法：先 `inspect.getsource()` 确认签名再 monkey-patch**，
-不要照抄上次会话的调用方式。
+```python
+inspect.signature(T.generate_micro_articles)   # → (long_direction=None)
+```
+
+**它接受 `long_direction=` 参数**，且内部调用
+`_pick_micro_index(used_indices, exclude_directions=shadow_dirs)`。
+2026-11-16 之所以「不接受参数」是因为当晚调用时把位置参数传错了位置。
+
+⚠️ **monkey-patch `_pick_micro_index` 时，签名必须带全部关键字参数** ——
+写成 `def fake(used_indices, history_path=None)` 会在
+`exclude_directions=shadow_dirs` 这个关键字实参上抛
+`TypeError: fake_pick_micro() got an unexpected keyword argument 'exclude_directions'`。
+
+✅ **正确写法**：
+
+```python
+def fake_pick_micro(used_indices, history_path=None, exclude_directions=()):
+    ...
+```
+
+**做法：先 `inspect.getsource()` / `inspect.signature()` 确认签名再 monkey-patch**，
+不要照抄上次会话的调用方式 —— **这个 API 每个版本都在变**。
 
 ```python
 import inspect
+print(inspect.signature(T.generate_micro_articles))
+print(inspect.signature(T._pick_micro_index))
 print(inspect.getsource(T.generate_micro_articles)[-700:])
 ```
 
-当晚为了让微头条固定选「理疗骗局 / 工龄错算」，patch 的是
-`_pick_lru`（被 `_pick_micro_index` 间接调用），实测有效。
+### ③ 选题池分散在**三个源文件**里（2026-11-17 实测踩了 3 次）
+
+改文案前**必须先定位在哪个文件**，否则锚点永远匹配不上：
+
+| 文件 | 内容 |
+|---|---|
+| `toutiao-article-daily.py` | 基础 `TOPICS_POOL`（10 条长文）/ `MICRO_TOPICS_POOL`（10 条微头条）/ `DIRECTION_QUESTIONS` |
+| `toutiao_topics_extra.py` | `EXTRA_TOPICS`（扩库长文）/ `EXTRA_MICRO_TOPICS`（扩库微头条） |
+| `toutiao_story_extensions.py` | `STORY_EXTENSIONS`（扩写段落，每方向一个 `(a, b)` 二元组） |
+
+**定位法**：`for f in 三个文件: print(f, txt.count(key))` —— 当晚连踩 3 次「以为在这个文件、实际在那个文件」。
+
+⚠️ 跨池扫描时**长文池要包含 `EXTRA_TOPICS`**（运行时是
+`TOPICS_POOL = TOPICS_POOL + EXTRA_TOPICS`），否则会漏掉一半方向。
 
 ---
 

@@ -793,7 +793,8 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
     （退出码 2 = 装配不出正文 = 该池字段结构与装配函数不匹配 = 假阳性来源）。
     **新增装配函数前，先看 linter 里有没有现成的池型分叉助手**（`_units_for()` / `_ext_pair()`）——
     自造第二套装配逻辑 = 迟早与主流程漂移。
-  - **When a cron session's report says "audit passed", check the audit tool's own
+  - **🔴 2026-11-17 实测：报告里的「工具链状态」那一行，必须是**真的跑出来的**，不能是「应该没问题」**。当晚 `verify_cross_night_collisions.py` 首次真跑就是坏的（尾部多余一行 `</content>` ⇒ SyntaxError ⇒ exit 1）。**规则：任何新落地的校验器，在同一次会话里用真实生产参数跑一遍并记录退出码，才允许写进报告的「工具链状态」行。** 落地 ≠ 可用 —— 未被调用过的工具会静默腐烂。
+- **⚠️ When a cron session's report says "audit passed", check the audit tool's own
     health at least once per session** — a green light from a tool you haven't run
     correctly is not evidence.
   - Full write-up (incl. the `PROMPT_HAS_CJK` and `PERIODIC_VS_YEARLY` rules added
@@ -812,6 +813,17 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
      - **两套口径别混用**：`_num()` 返回**元**（`_num('5万6')` = 56000），`_wan_amount()` 返回**万**（`_wan_amount('5','6')` = 5.6），差 1e4 —— 两个函数的 docstring 都必须写清单位。
   Full write-up + the 6 recorded defects: `content-platforms/references/content-self-consistency-checking.md`.
 
+- **🔴 2026-11-17 实测：审计/校验工具的第三种死法 —— `SyntaxError`（工具文件本身被污染），症状与「内容有问题」完全同码**。`content-platforms/scripts/verify_cross_night_collisions.py` **文件尾部被误粘一行 `</content>`**（疑似某次 XML 片段误粘进源码）⇒ 跑起来 stdout 空、stderr 一行 `SyntaxError: invalid syntax`、**exit 1**。
+  - ⚠️ **这是最危险的一种死法**：`lint_content_consistency.py` 的退出码语义里 **1 = 内容有问题（去改文案）**、**2 = 工具坏了（去修工具）**。而 `SyntaxError` 让 Python 直接以 **exit 1** 退出 ⇒ **照惯例「exit 1 ⇒ 改文案」会把本来正确的内容改坏**。
+  - **✅ 判别口诀（比「stdout 空 + stderr 有 traceback」更全）**：
+    | stderr 形状 | 判定 | 应对 |
+    |---|---|---|
+    | traceback，末行 `SyntaxError` | 工具**文件本身**坏了 | 修工具，别碰文案 |
+    | traceback，`NameError: xxx 未定义` | 工具内部坏了 | 修工具 |
+    | 无 traceback，有规则名 + 命中项 | 内容有问题 | 改文案 |
+  - **定位手法**：`tail -c 300 <file> | od -c | tail -20` 看最后几字节有没有多余的闭合标签行。
+  - 🔴 **附带教训：新落地的校验器会静默腐烂** —— 该脚本 2026-11-15 才落地，**当晚是第一次真正跑它**，一跑就是坏的。**「写完了」≠「可用」**。**任何新落地的校验器，在同一次会话里必须用真实生产参数真跑一遍并记录退出码**，否则它会在产线上烂几个月，直到某天有人碰巧调用它。
+  - 详见 `content-platforms/references/pool-wide-scan-and-linter-syntax-death.md`。
 - **🔴 2026-11-04 实测：自动化审计全绿 ≠ 内容对。** 那一晚头条号文章的
   `audit_rendered_article.py` 报「✅ 全部检查通过」、`lint_content_consistency.py`
   exit 0、脚本 exit 0、飞书附件已回查确认送达 —— **全绿**，但**人工逐段通读 +
