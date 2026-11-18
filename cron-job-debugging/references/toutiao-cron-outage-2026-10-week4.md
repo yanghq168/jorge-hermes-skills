@@ -31,7 +31,7 @@ The cron prompt sent each night states:
 - 选题方向：养老、遗产、赡养、亲戚恩怨（头条中老年男性用户最爱）
 - 长文吃流量，故事要完整，观点要犀利
 
-These are **already encoded** in `references/toutiao-article-daily.md` (选题库特征 + 检查清单) and in the `TOPICS_POOL` / `MICRO_TOPICS_POOL` of the script. But agents reading the cron prompt afresh might be tempted to "improve" by adding hot-search-driven topics (unified-style) or expanding to other demographics. **Don't.** The Toutiao pipeline is deliberately **not** part of the hot-search pipeline — it's a fixed-topic rotation optimized for an audience the user has explicitly carved out. The cron prompt re-asserts this every night; treat it as load-bearing, not ignorable.
+These are **already encoded** in `productivity/content-platforms/references/toutiao-article-daily.md` (选题库特征 + 检查清单) and in the `TOPICS_POOL` / `MICRO_TOPICS_POOL` of the script. But agents reading the cron prompt afresh might be tempted to "improve" by adding hot-search-driven topics (unified-style) or expanding to other demographics. **Don't.** The Toutiao pipeline is deliberately **not** part of the hot-search pipeline — it's a fixed-topic rotation optimized for an audience the user has explicitly carved out. The cron prompt re-asserts this every night; treat it as load-bearing, not ignorable.
 
 ### Today's run (2026-10-19, failure #59)
 

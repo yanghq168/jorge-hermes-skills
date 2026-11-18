@@ -37,7 +37,7 @@ Cases A–F), `toutiao-cron-outage-2026-09.md` (Cases S+, failure #34 onward),
 | 16 | **`str.format(**kwargs)` silently drops unreferenced kwargs** — "renders without error" does NOT prove the output is complete. Grep the rendered product for the key fields. | SKILL.md Pitfalls |
 | 17 | **A dead mail channel is not a dead content channel** — push the HTML as a native file attachment on a healthy chat route instead of only reporting "email failed". | `references/toutiao-cron-outage-2026-10-week4.md` |
 | 18 | **Don't write a bespoke script for a 30-second cleanup** — a bash one-liner is correct; over-engineering one-off tooling is an anti-pattern. | SKILL.md Pitfalls (Case P) |
-| 19 | **Audit green ≠ content right** — `audit`/`lint`/script exit 0 + Feishu `message.get` verified = the *delivery* is fine, not the *content*. Cross-field and cross-night relations are a blind spot of every current rule. | `content-platforms/references/cross-field-defect-detection.md` |
+| 19 | **Audit green ≠ content right** — `audit`/`lint`/script exit 0 + Feishu `message.get` verified = the *delivery* is fine, not the *content*. Cross-field and cross-night relations are a blind spot of every current rule. | `productivity/content-platforms/references/cross-field-defect-detection.md` |
 | 20 | **Cross-field detection must call the real production function** — reimplementing the selection logic in the test script silently tests the wrong thing (measured "fix had no effect" when the fix was fine). | same reference |
 
 ---
@@ -415,7 +415,7 @@ nothing about cross-field or cross-night relationships.
 > cross-night comparison and a verbatim-repetition scan, not just the per-field checks.
 
 Full detection/repair code and the guard-tuning table:
-`content-platforms/references/cross-field-defect-detection.md`.
+`productivity/content-platforms/references/cross-field-defect-detection.md`.
 
 ### Corrections applied to the source (Case R — fixes land tomorrow)
 

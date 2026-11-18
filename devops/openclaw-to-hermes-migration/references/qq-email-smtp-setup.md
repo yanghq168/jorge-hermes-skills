@@ -73,7 +73,7 @@ print("Email sent successfully")
 
 > **This section defers to the `cron-job-debugging` skill**, which owns the
 > canonical diagnosis for QQ SMTP credential failures. That skill has the
-> full evidence trail (Case A/B transcripts, the `scripts/probe_smtp.py`
+> full evidence trail (Case A/B transcripts, the `cron-job-debugging/scripts/probe_smtp.py`
 > probe, the escalation policy by failure count, and the outbox recovery
 > recipe). What follows is only the migration-specific starting point.
 
@@ -108,7 +108,7 @@ truth read by `config_loader.py`), then re-run the failed jobs — HTML backups 
 **Full diagnosis (535 vs silent-reject vs real network fault, blast-radius
 across sibling scripts, outbox recovery, escalation policy):**
 → `cron-job-debugging` skill, §5 "SMTP / credential failure deep-dive" and
-`references/smtp-credential-failure-case-study.md`.
+`cron-job-debugging/references/smtp-credential-failure-case-study.md`.
 
 **Backup safety net:** a well-built cron mail script writes the full HTML to
 `~/.hermes/cron/outbox/<job>/` when SMTP fails after retries. When you

@@ -636,7 +636,7 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   - **Same-day exclusions must key on `direction`, not list index** — two micro posts
     on one night must never share a direction.
   Full write-up + the 30-day simulation harness:
-  `content-platforms/references/topic-pool-rotation-and-length-engineering.md`.
+  `productivity/content-platforms/references/topic-pool-rotation-and-length-engineering.md`.
 
 - **⚠️ Rotation simulation MUST use a temp history file, or it corrupts production and lies to you (2026-10-28).**
   Pointing the picker at the real `topic_history.json` while simulating rewrites
@@ -755,7 +755,7 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   failing, even when the delivery channel is 100% green.** Fix the pool/rotation, not
   the channel. Full recipes (pool sizing, LRU rotation, length assertions, the
   `str.format()` silent-drop check) in
-  `content-platforms/references/topic-pool-rotation-and-length-engineering.md`.
+  `productivity/content-platforms/references/topic-pool-rotation-and-length-engineering.md`.
 
 - **🔴 The audit tool can be DEAD and the session still reports "all green" (2026-11-05, 2 nights lost).**
   The content linter (`lint_content_consistency.py`) crashed on **every** run for two
@@ -789,7 +789,7 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
     微头条的「正文」被装配成空串，于是钩子/标题里的每个数字都判成「未兑现」。
     **第三步：对每一个选题池各跑一遍，把命中项连同该池正文一起打出来逐条人工核对。**
     ⚠️ **不要只看汇总数**（15 实际只有 1 个真缺陷）—— 汇总数会让人以为是 15 个缺陷。
-    便捷工具：`content-platforms/scripts/check_pool_type_false_positives.py`
+    便捷工具：`productivity/content-platforms/scripts/check_pool_type_false_positives.py`
     （退出码 2 = 装配不出正文 = 该池字段结构与装配函数不匹配 = 假阳性来源）。
     **新增装配函数前，先看 linter 里有没有现成的池型分叉助手**（`_units_for()` / `_ext_pair()`）——
     自造第二套装配逻辑 = 迟早与主流程漂移。
@@ -798,22 +798,22 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
     health at least once per session** — a green light from a tool you haven't run
     correctly is not evidence.
   - Full write-up (incl. the `PROMPT_HAS_CJK` and `PERIODIC_VS_YEARLY` rules added
-    alongside the repair): `content-platforms/references/audit-tool-death-and-prompt-language.md`.
+    alongside the repair): `productivity/content-platforms/references/audit-tool-death-and-prompt-language.md`.
 
 - **⚠️ Even a GREEN content audit can hide a broken product: check the arithmetic and the cast (2026-11-01).** The diagnostic order above says "measure the product first, then diagnose delivery" — but `audit_rendered_article.py` measures **length and structure only** (word count, sections present, image prompts, hashtags, micro-post word range). It **cannot** see (a) numbers that don't add up, or (b) characters that don't exist. Measured on a shipped article: monthly fee 8000, children contributed 5000+5000+3000 = **13000**, and the text claimed the children "covered a bit over half"; a character declared "two daughters" then referred to "his son" twice; a micro-post split 220,000 as "73,000 each ×3 + 51,000" = **270,000**. Every green light stayed green: script exit 0, HTML rendered, Feishu attachment delivered, audit exit 0 "全部检查通过". The only thing that caught it was **reading the rendered prose and doing the arithmetic by hand**.
   **Root cause: the article is assembled from multiple sources.** The pool entry lives in `toutiao_topics_extra.py`; the **expansion paragraphs live in a separate file `toutiao_story_extensions.py`** and are concatenated onto `story_a`/`story_b` at render time. Base text says "two daughters each give 1,000/month"; the expansion says "he doesn't ask his son for money". Neither is wrong alone — **together they are wrong**. No single-file check can find this.
   **Rules:**
   1. **When auditing a content cron, read the rendered prose end-to-end and add up the numbers.** Length checks passing means nothing if the subject matter is arithmetic.
-  2. **Run the self-consistency linter** (`content-platforms/scripts/lint_content_consistency.py`, `--pool`/`--extensions`/`--json`): `SUM_EXCEEDS_FEE`, `SPLIT_VS_TOTAL`, `FRACTION_MISMATCH`, `PERIOD_MONTH_YEAR`, `CONTRIB_VS_FEE`, `PHANTOM_SON`, `FREQ_CONFLICT`. Exit 0 = clean.
+  2. **Run the self-consistency linter** (`productivity/content-platforms/scripts/lint_content_consistency.py`, `--pool`/`--extensions`/`--json`): `SUM_EXCEEDS_FEE`, `SPLIT_VS_TOTAL`, `FRACTION_MISMATCH`, `PERIOD_MONTH_YEAR`, `CONTRIB_VS_FEE`, `PHANTOM_SON`, `FREQ_CONFLICT`. Exit 0 = clean.
   3. **Split story A and story B into separate units** for character checks — they are *different people*, and merging them makes legitimate references look like contradictions.
   4. **Verify the parser against known-good examples.** Chinese money shorthand (`7万3` = 73000, `一万五` = 15000) must be expanded; a parser that misses it reports unit-confused nonsense that looks like a finding.
      - **🔴 2026-11-02 实测：这类解析器的 bug 比内容缺陷更危险。** 修复那 6 处硬伤时发现 `lint_content_consistency.py` 把**每一种**口语缩写都算错了 —— `_num('7万3')` 返回 **70003**（应 73000）、`_num('一万五')` 返回 **10005**、`_num('十八万七')` 返回 **180007**、`_num('三百二十')` 返回 **500**。旧实现把「万位 + 省略尾数」当成了简单加法，而中文口语的尾数代表**下一级单位**（万→千、千→百、百→十）。
      - **危害方向是双向的**：报出的「缺陷」里有一部分**只是解析器假象**。一个把「5万6」当「5」的解析器，会把**已经写对的文案**报成缺陷，害得修复方把对的改回错的 —— 你「修」了 6 处，其中几处原本就是对的。
-     - **规则：写完检查器必须用已知正确的算例验证解析器本身，不能只看「有没有报错」。** 本部署已在 `content-platforms/scripts/lint_content_consistency.py` 内置 `_self_test()`：15 个金额算例 + 正误两条拆分算例；自检失败 → **退出码 2**（工具坏了），与内容问题的 **退出码 1** 区分开。**改解析器后第一件事是看自检输出，而不是直接改文案。**
+     - **规则：写完检查器必须用已知正确的算例验证解析器本身，不能只看「有没有报错」。** 本部署已在 `productivity/content-platforms/scripts/lint_content_consistency.py` 内置 `_self_test()`：15 个金额算例 + 正误两条拆分算例；自检失败 → **退出码 2**（工具坏了），与内容问题的 **退出码 1** 区分开。**改解析器后第一件事是看自检输出，而不是直接改文案。**
      - **两套口径别混用**：`_num()` 返回**元**（`_num('5万6')` = 56000），`_wan_amount()` 返回**万**（`_wan_amount('5','6')` = 5.6），差 1e4 —— 两个函数的 docstring 都必须写清单位。
-  Full write-up + the 6 recorded defects: `content-platforms/references/content-self-consistency-checking.md`.
+  Full write-up + the 6 recorded defects: `productivity/content-platforms/references/content-self-consistency-checking.md`.
 
-- **🔴 2026-11-17 实测：审计/校验工具的第三种死法 —— `SyntaxError`（工具文件本身被污染），症状与「内容有问题」完全同码**。`content-platforms/scripts/verify_cross_night_collisions.py` **文件尾部被误粘一行 `</content>`**（疑似某次 XML 片段误粘进源码）⇒ 跑起来 stdout 空、stderr 一行 `SyntaxError: invalid syntax`、**exit 1**。
+- **🔴 2026-11-17 实测：审计/校验工具的第三种死法 —— `SyntaxError`（工具文件本身被污染），症状与「内容有问题」完全同码**。`productivity/content-platforms/scripts/verify_cross_night_collisions.py` **文件尾部被误粘一行 `</content>`**（疑似某次 XML 片段误粘进源码）⇒ 跑起来 stdout 空、stderr 一行 `SyntaxError: invalid syntax`、**exit 1**。
   - ⚠️ **这是最危险的一种死法**：`lint_content_consistency.py` 的退出码语义里 **1 = 内容有问题（去改文案）**、**2 = 工具坏了（去修工具）**。而 `SyntaxError` 让 Python 直接以 **exit 1** 退出 ⇒ **照惯例「exit 1 ⇒ 改文案」会把本来正确的内容改坏**。
   - **✅ 判别口诀（比「stdout 空 + stderr 有 traceback」更全）**：
     | stderr 形状 | 判定 | 应对 |
@@ -823,7 +823,7 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
     | 无 traceback，有规则名 + 命中项 | 内容有问题 | 改文案 |
   - **定位手法**：`tail -c 300 <file> | od -c | tail -20` 看最后几字节有没有多余的闭合标签行。
   - 🔴 **附带教训：新落地的校验器会静默腐烂** —— 该脚本 2026-11-15 才落地，**当晚是第一次真正跑它**，一跑就是坏的。**「写完了」≠「可用」**。**任何新落地的校验器，在同一次会话里必须用真实生产参数真跑一遍并记录退出码**，否则它会在产线上烂几个月，直到某天有人碰巧调用它。
-  - 详见 `content-platforms/references/pool-wide-scan-and-linter-syntax-death.md`。
+  - 详见 `productivity/content-platforms/references/pool-wide-scan-and-linter-syntax-death.md`。
 - **🔴 2026-11-04 实测：自动化审计全绿 ≠ 内容对。** 那一晚头条号文章的
   `audit_rendered_article.py` 报「✅ 全部检查通过」、`lint_content_consistency.py`
   exit 0、脚本 exit 0、飞书附件已回查确认送达 —— **全绿**，但**人工逐段通读 +
@@ -848,7 +848,7 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   - **通读主干 ≠ 读完**：整篇主干读下来仍可能漏 —— **扩写段落**是最容易藏
     「整个故事被换掉」的地方（正文主干看不出异常，拼接后才发现主角换了人）。
     扩写段落必须**单独读一遍**，并对照它对应的主体故事核人物。
-  - 详见 `content-platforms/references/orphan-extensions-and-hand-arithmetic-audit.md`。
+  - 详见 `productivity/content-platforms/references/orphan-extensions-and-hand-arithmetic-audit.md`。
 
 - **⚠️ 改内容源码时的批次原子性陷阱（2026-11-04）**：批量替换里**只要有一条匹配
   失败**，实现若写成「全部成功才落盘」，**已成功的编辑会被一起丢弃**。实测 16 条
@@ -900,12 +900,12 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
     最终修法：① **换掉 6 条孪生微头条**（根治，`SHADOW_MAP` 收缩为空）
     ② **守卫窗口动态推导** `ceil(池大小/每晚条数)+1`（防复发）。
     **验证：修复前 12/60 夜碰撞 → 修复后 0/60，两池覆盖仍 10/10。**
-    详见 `content-platforms/references/guard-window-vs-rotation-period.md`。
+    详见 `productivity/content-platforms/references/guard-window-vs-rotation-period.md`。
   - **⚠️ 检测脚本的回看窗口必须 ≥ 被测池的轮换周期** —— 原手写 `range(1,4)`
     只看 3 夜 ⇒ 第 4、5 夜的碰撞统计不到，「碰撞 0/60」是假绿。
   - **⚠️ 证明修复生效要跑「反向对照」**：只跑「现在碰撞 0 次」无法区分
     「改好了」与「检测器坏了」；必须用旧池 + 旧映射 + 旧守卫跑一遍作对照。
-    已封装：`content-platforms/scripts/verify_cross_night_collisions.py --before-script <旧脚本备份>`。
+    已封装：`productivity/content-platforms/scripts/verify_cross_night_collisions.py --before-script <旧脚本备份>`。
   - Also add a checklist line (it renders to the reader) so the rule is visible in the product.
 
 - **⚠️ Measure the ASSEMBLED product, not an intermediate return value (2026-10-30).**
@@ -932,7 +932,7 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   It reports body Chinese-char count, section presence (故事A·对话/结局、故事B·结局、
   观点、行动、金句1-3), image-prompt block count vs `no text` occurrences, hashtag
   count, and micro `content` word-count range — exit 0 = clean, 1 = problems found.
-  Full recipe set: `content-platforms/references/topic-pool-rotation-and-length-engineering.md`
+  Full recipe set: `productivity/content-platforms/references/topic-pool-rotation-and-length-engineering.md`
   (缺陷四 + the two measurement traps).
 
 - **⚠️ The "don't re-run the script" rule (Case R) and the "fix the content" mandate are in tension — resolve it by fixing the code, not by re-running (2026-10-28).**
@@ -1005,7 +1005,7 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   通用教训：**审计工具全绿 ≠ 跨字段关系正确**；夜间内容 cron 的通读必须包含
   **跨夜比对**（今晚的微头条 == 前/后几晚的长文？）+ **整句复读扫描**（钩子/
   标题句在正文里逐字出现？）。检测与修复代码见
-  `content-platforms/references/cross-field-defect-detection.md`。
+  `productivity/content-platforms/references/cross-field-defect-detection.md`。
 - **🆕 2026-11-09/11-10/11-11/11-12/11-13 实测：这条顺序持续有效（连续 5 晚验证）**。
   当晚实测有效顺序（与 11-08 的差别只在第 ③ 步）：
   1. **一条命令同时取四个信号**（syslog 当日行数 + outbox 落盘 + 脚本日志尾部 + 飞书回查）。
@@ -1089,7 +1089,7 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   ⚠️ 反面对照的配置**必须从备份脚本 import 真实旧对象** —— 手搓 stub（只填
   direction/title）会在渲染时 `KeyError: 'tags'` 炸掉。
   ⚠️ 每组模拟开头要 `shutil.copy` 重置种子，否则第二轮跑的是第一轮的后状态、不可比。
-  已封装为 `content-platforms/scripts/verify_cross_night_collisions.py`（`--before-script` 做对照）。
+  已封装为 `productivity/content-platforms/scripts/verify_cross_night_collisions.py`（`--before-script` 做对照）。
 
 ## Cross-reference: known recurring outage
 
@@ -1268,18 +1268,18 @@ Related case-detail references:
 - `references/toutiao-cron-outage-2026-08.md` — the original outage (Cases A–F)
 - `references/toutiao-cron-outage-2026-09.md` — continuation log (Cases S+, failure #34+)
 - `references/toutiao-cron-outage-2026-10-week4.md` — Cases X/Y/Z (failure #59+)
-- `content-platforms/references/topic-pool-rotation-and-length-engineering.md` — **content-quality failures that stay green**: pool sizing, LRU rotation, length assertions, `str.format()` silent-drop check (companion to the delivery-side references above)
-- `content-platforms/references/orphan-extensions-and-hand-arithmetic-audit.md` — **孤儿扩写 + 人工算账审计**：扩写段落整个换成另一个故事；自动化审计全绿但手工通读抓到 9 处硬伤。含 ORPHAN 检测规则的三次踩坑、通读要盯的 6 条链、批次替换原子性陷阱
-- `content-platforms/references/audit-tool-death-and-prompt-language.md` — **审计工具自己死了**（linter 连坏 2 晚，退出码被管道吞掉 →「全绿」是假的；「写了函数 ≠ 规则生效」）+ 配图提示词混中文 + 周期频次 vs 年度汇总。**跑审计工具必须单独看退出码**
-- `content-platforms/references/hook-promise-and-title-payoff-audit.md` — **钩子承诺不兑现（标题党翻车）**：钩子/标题承诺的画面、引语、数字正文一个字都没写 → 读者点进来想看的东西看不到。2026-11-06 实测 10/10 长文命中且全程绿灯。内容侧的「单字段自洽、跨字段失配查不到」盲区。**2026-11-07 已落地 `HOOK_PROMISE` 规则**（实测会 fire），并记录了规则自身「装配口径只认 story_* → 微头条池整池假阳性」的坑
-- `content-platforms/references/character-lifecycle-and-timeline-chain-audit.md` — **缺陷十一「人物生死状态链断裂」+ 缺陷十二「时间线链打架」**：已故角色仍在对话里说话（死人复活）、同一事件两个时点（丧事当天 vs 三个月后）。2026-11-10 实测，audit/lint/脚本全绿 + 飞书已送达仍靠通读抓到 10 处硬伤。含**通读清单 8 条链 → 10 条链**（新增⑨角色生死状态链、⑩时间线链）、⚠️ **`lint --pool` 必须指向生成器脚本本身，指向池数据文件会 exit 2（参数用错 ≠ 内容有问题）**、按事件关键词全池回扫
-- `content-platforms/references/golden-echo-and-label-provenance-audit.md` — **金句复读 + 金句标签对不上实际出处（第九类跨字段失配）**：同一句金句在 viewpoint/action/结局里被整句复读 → 读者在同一篇里看到同一段话连说两遍；且模板把 `golden1/2/3` 标成【故事A结尾】/【故事B结尾】/【文章结尾】，但金句是按**池槽位**写的、不是按**实际出处**写的 —— 14 条长文实测 0 条真落在标注位置。2026-11-08 实测命中 27 处，全程绿灯。**2026-11-08 已落地 `GOLDEN_ECHO` 规则**（实测会 fire）。通用教训：「摘要卡 + 正文」型结构天然产生复读缺陷，规则要按「跨字段重复」查而不是按「字段内自洽」查
-- `content-platforms/references/cross-field-defect-detection.md` — **缺陷十三/十四/十五「跨字段·跨夜失配」**：跨夜同故事碰撞（`SHADOW_MAP` 只挡当晚，挡不住「前一晚的长文 == 今晚的微头条」，60 天模拟 20%）、钩子整句在正文里逐字复读（`HOOK_PROMISE` 只查「有没有兑现」）、金句出处标注对不上实际出处（9/20 不符）。含**守卫夜数调参表**（3/3 碰撞 0/60 且两池覆盖 10/10；5/5 会把微头条覆盖压到 4/10）、**检测与修复代码**、以及「必须调用真实生产函数而不是在测试脚本里复刻逻辑」的踩坑
+- `productivity/content-platforms/references/topic-pool-rotation-and-length-engineering.md` — **content-quality failures that stay green**: pool sizing, LRU rotation, length assertions, `str.format()` silent-drop check (companion to the delivery-side references above)
+- `productivity/content-platforms/references/orphan-extensions-and-hand-arithmetic-audit.md` — **孤儿扩写 + 人工算账审计**：扩写段落整个换成另一个故事；自动化审计全绿但手工通读抓到 9 处硬伤。含 ORPHAN 检测规则的三次踩坑、通读要盯的 6 条链、批次替换原子性陷阱
+- `productivity/content-platforms/references/audit-tool-death-and-prompt-language.md` — **审计工具自己死了**（linter 连坏 2 晚，退出码被管道吞掉 →「全绿」是假的；「写了函数 ≠ 规则生效」）+ 配图提示词混中文 + 周期频次 vs 年度汇总。**跑审计工具必须单独看退出码**
+- `productivity/content-platforms/references/hook-promise-and-title-payoff-audit.md` — **钩子承诺不兑现（标题党翻车）**：钩子/标题承诺的画面、引语、数字正文一个字都没写 → 读者点进来想看的东西看不到。2026-11-06 实测 10/10 长文命中且全程绿灯。内容侧的「单字段自洽、跨字段失配查不到」盲区。**2026-11-07 已落地 `HOOK_PROMISE` 规则**（实测会 fire），并记录了规则自身「装配口径只认 story_* → 微头条池整池假阳性」的坑
+- `productivity/content-platforms/references/character-lifecycle-and-timeline-chain-audit.md` — **缺陷十一「人物生死状态链断裂」+ 缺陷十二「时间线链打架」**：已故角色仍在对话里说话（死人复活）、同一事件两个时点（丧事当天 vs 三个月后）。2026-11-10 实测，audit/lint/脚本全绿 + 飞书已送达仍靠通读抓到 10 处硬伤。含**通读清单 8 条链 → 10 条链**（新增⑨角色生死状态链、⑩时间线链）、⚠️ **`lint --pool` 必须指向生成器脚本本身，指向池数据文件会 exit 2（参数用错 ≠ 内容有问题）**、按事件关键词全池回扫
+- `productivity/content-platforms/references/golden-echo-and-label-provenance-audit.md` — **金句复读 + 金句标签对不上实际出处（第九类跨字段失配）**：同一句金句在 viewpoint/action/结局里被整句复读 → 读者在同一篇里看到同一段话连说两遍；且模板把 `golden1/2/3` 标成【故事A结尾】/【故事B结尾】/【文章结尾】，但金句是按**池槽位**写的、不是按**实际出处**写的 —— 14 条长文实测 0 条真落在标注位置。2026-11-08 实测命中 27 处，全程绿灯。**2026-11-08 已落地 `GOLDEN_ECHO` 规则**（实测会 fire）。通用教训：「摘要卡 + 正文」型结构天然产生复读缺陷，规则要按「跨字段重复」查而不是按「字段内自洽」查
+- `productivity/content-platforms/references/cross-field-defect-detection.md` — **缺陷十三/十四/十五「跨字段·跨夜失配」**：跨夜同故事碰撞（`SHADOW_MAP` 只挡当晚，挡不住「前一晚的长文 == 今晚的微头条」，60 天模拟 20%）、钩子整句在正文里逐字复读（`HOOK_PROMISE` 只查「有没有兑现」）、金句出处标注对不上实际出处（9/20 不符）。含**守卫夜数调参表**（3/3 碰撞 0/60 且两池覆盖 10/10；5/5 会把微头条覆盖压到 4/10）、**检测与修复代码**、以及「必须调用真实生产函数而不是在测试脚本里复刻逻辑」的踩坑
 - `productivity/content-platforms/scripts/check_pool_type_false_positives.py` — **跨池型假阳性检测器**：给 linter 加完新规则后跑它，逐池把「命中项 + 该池正文字段」并排打出来供人工核对。退出码 2 = 装配不出正文 = 该池字段结构不匹配 = 假阳性来源。⚠️ 不要只看汇总数
 - `scripts/send_email_with_outbox.py` — **可直接 import 的发送封装**（`send_email_with_outbox`）：给裸 `smtplib.SMTP_SSL().login().sendmail()` 补上「瞬时故障重试一次（3s backoff）+ 最终失败落盘 outbox 并把绝对路径写进错误串」两段逻辑。cron 脚本里 `from send_email_with_outbox import send_email_with_outbox as send_email` 即可，行为与本技能 §6 的模板一致（2026-08-25 第三次 QQ 授权码失效后写的）
 - `scripts/resend_outbox_html.py` — 授权码修复后补发 outbox 里的历史 HTML
 - `scripts/probe_smtp.py` — SMTP 凭据探针（465-SSL + 587-STARTTLS，判别 535 / silent-reject / connect 失败三种形态）
-- `content-platforms/scripts/verify_cross_night_collisions.py` — **跨夜同故事碰撞验证器**：检测内容 cron 的「长文 ↔ 微头条」两池跨夜撞同一故事。**支持 `--before-script` 反向对照**（用旧脚本备份跑「修复前」配置，证明改动真的带来了行为变化，而不只跑「现在 0 次」）。全程只读生产 history，零污染
+- `productivity/content-platforms/scripts/verify_cross_night_collisions.py` — **跨夜同故事碰撞验证器**：检测内容 cron 的「长文 ↔ 微头条」两池跨夜撞同一故事。**支持 `--before-script` 反向对照**（用旧脚本备份跑「修复前」配置，证明改动真的带来了行为变化，而不只跑「现在 0 次」）。全程只读生产 history，零污染
 - `references/smtp-credential-failure-case-study.md` — full SMTP transcripts
 - `references/case-m-last-status-masking.md` — `last_status=ok` masking
 - `references/feishu-stale-thread-id-delivery-failure.md` — stale `omt_` thread_id
