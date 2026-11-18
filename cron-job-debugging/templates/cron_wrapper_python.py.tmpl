@@ -1,0 +1,51 @@
+#!/usr/bin/env python3
+"""Hermes cron wrapper for __NAME__.py
+
+COPY this file to ~/.hermes/scripts/__REL_DIR__/__NAME__.py and replace:
+  __NAME__    -> the production script's basename
+  __REAL_PATH__ -> the production script's absolute path
+
+Why this wrapper exists
+-----------------------
+The Hermes scheduler resolves a no_agent job's ``script`` field against
+``HERMES_HOME/scripts/`` and then calls ``Path.resolve()`` on the result.
+The resolved path MUST still live inside ``~/.hermes/scripts/`` or the job is
+rejected with:
+
+    Blocked: script path resolves outside the scripts directory
+
+Because ``resolve()`` follows symlinks, a symlink pointing at
+``~/.hermes/cron/scripts/__NAME__.py`` resolves *outside* the scripts dir and
+is rejected too.  The real script therefore cannot be reached directly.
+
+This wrapper is a real file inside ``~/.hermes/scripts/`` (so it survives
+``resolve()``) and it executes the production script via ``runpy`` with the
+REAL path.  That keeps the production script's runtime semantics intact:
+
+* ``__file__``    -> the real path, so ``os.path.dirname(os.path.abspath(__file__))``
+  points at the production script's directory (state/dedup files stay in ONE
+  place instead of splitting across directories).
+* ``sys.path[0]`` -> the real script's directory, so ``from config_loader
+  import get_mail_config`` still resolves.
+
+Do NOT replace this with a symlink, and do NOT move the production script
+here — either change breaks one of the two guarantees above.
+"""
+import os
+import runpy
+import sys
+
+REAL_SCRIPT = "__REAL_PATH__"
+
+if not os.path.isfile(REAL_SCRIPT):
+    sys.stderr.write("wrapper: target script missing: {}\n".format(REAL_SCRIPT))
+    raise SystemExit(2)
+
+# Make the production script's own directory importable so that
+# ``from config_loader import get_mail_config`` resolves.
+_real_dir = os.path.dirname(REAL_SCRIPT)
+if _real_dir not in sys.path:
+    sys.path.insert(0, _real_dir)
+
+# runpy sets __file__ to the real path, preserving dirname() semantics.
+runpy.run_path(REAL_SCRIPT, run_name="__main__")

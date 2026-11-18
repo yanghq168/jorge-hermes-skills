@@ -15,6 +15,53 @@ Migrated from the `content-platforms` skill.
 
 ---
 
+## 🔴 2026-11-18 新增：先分辨「双调度」是不是真的会双发（agent 模式 ≠ no_agent 模式）
+
+同一个脚本同时注册在经典 crontab 和 Hermes `jobs.json` 里，**后果完全取决于
+Hermes 那一侧是什么模式**。不分清就会要么误报「有重复投递」、要么漏报真重复：
+
+| Hermes 侧模式 | 经典 crontab 也有 | 后果 | 判定方法 |
+|---|---|---|---|
+| **agent 模式**（有 prompt、无 script） | 有 | **通常无重复** —— agent 是去做审计/修源码，不是重新生成产物 | 数当晚产物：`ls -1 ~/.hermes/cron/outbox/<platform>/<YYYYMMDD>*.html \| wc -l` 应为 **1** |
+| **no_agent 脚本模式**（有 script 字段） | 有 | **真双发** —— 两个调度器各跑一次脚本，产出两份内容、两封邮件、两次推送 | 两个调度器各跑一次 ⇒ 必然两份产物 |
+
+实测（2026-11-18）：
+- `toutiao-article-daily.py` —— 经典 cron 20:30 + Hermes **agent** 模式 20:30
+  ⇒ outbox 当晚产物恒为 **1** 个 ⇒ **无重复，不用动**
+- `wechat-article-daily.py` —— 经典 cron 22:00 + Hermes **no_agent** 07:00
+  ⇒ **真重复**，修好路径后一天会出两篇公众号
+- `skill-backup.sh` —— 经典 cron 03:00 + Hermes **no_agent** 03:00
+  ⇒ **同一分钟撞车**，必然重复推送备份报告
+
+**判定脚本（一眼看出每个 job 是哪种模式）：**
+```bash
+python3 -c "
+import json
+j=json.load(open('$HOME/.hermes/cron/jobs.json'))
+jobs=j if isinstance(j,list) else j.get('jobs',[])
+for x in jobs:
+    mode = 'no_agent(脚本)' if x.get('script') else 'agent(提示词)'
+    print(f\"{mode:16} | {x.get('schedule',{}).get('expr','?'):16} | {x.get('name')} | script={x.get('script')}\")
+"
+```
+再和 `crontab -l` 对照：**只有 `no_agent` 的行需要处理重复。**
+
+**⚠️ 处理前先备份 crontab**：
+```bash
+crontab -l > /tmp/crontab_backup_$(date +%Y%m%d_%H%M).txt
+```
+**⚠️ 经典 crontab 里还有「没有对应 Hermes job」的脚本**（本部署有
+bithappy / health_check / failure_prediction / daily_report / weekly_report /
+monthly_report / site_backup / memory_archive / heartbeat / collect_metrics 等），
+删行时**只删与 Hermes job 重叠的那一条**，别整块覆盖 crontab。
+
+**⚠️ 修路径可能「唤醒」一个沉睡的重复调度**：一个从没成功跑过的 job
+（因为路径坏）在修好之前是**无害的** —— 它每天失败、不产出任何东西。
+修好之后它突然开始产出，于是和经典 cron 撞车。**所以「修路径」和
+「消除重复调度」是同一个任务的两半，必须一起做，不能只做前半。**
+
+---
+
 # 排查重复内容推送任务
 
 ## 问题现象

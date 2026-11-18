@@ -1,0 +1,16 @@
+#!/bin/bash
+# Hermes cron wrapper for __NAME__.sh
+#
+# COPY this file to ~/.hermes/scripts/__REL_DIR__/__NAME__.sh and replace:
+#   __NAME__    -> the production script's basename
+#   __REAL_PATH__ -> the production script's absolute path
+#
+# The Hermes scheduler resolves a no_agent job's `script` field against
+# HERMES_HOME/scripts/ and rejects any path that resolves outside that
+# directory (symlinks are followed by Path.resolve() and are rejected too).
+# This real file lives inside ~/.hermes/scripts/, so it survives resolve(),
+# and it invokes the production script by absolute path.
+#
+# Do NOT replace this with a symlink.
+
+exec bash __REAL_PATH__

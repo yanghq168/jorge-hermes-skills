@@ -1,7 +1,7 @@
 ---
 name: cron-job-debugging
-description: "Debug silently-failing Hermes cron jobs (no_agent script mode, scheduled prompt jobs, chained jobs). Diagnose 'Script not found', silent no-op, exit-code-without-output, path-resolution failures, AND credential/SMTP delivery failures by reading scheduler output logs in ~/.hermes/cron/output/. Applies the script-path resolution rule, the SMTP-credential deep-dive, and the local-fallback save pattern."
-version: 1.5.0
+description: "Debug silently-failing Hermes cron jobs (no_agent script mode, scheduled prompt jobs, chained jobs). Diagnose 'Script not found', 'Blocked: script path resolves outside the scripts directory', silent no-op, exit-code-without-output, path-resolution failures, AND credential/SMTP delivery failures by reading scheduler output logs in ~/.hermes/cron/output/. Applies the script-path resolution rule (wrapper-file fix — absolute paths and symlinks are both rejected), the SMTP-credential deep-dive, and the local-fallback save pattern."
+version: 1.6.0
 author: Hermes Agent
 license: MIT
 platforms: [linux, macos]
@@ -61,6 +61,7 @@ just glance at the header.
 | Log body | Meaning | Fix |
 |----------|---------|-----|
 | `Script not found: <path>` | Scheduler couldn't find the script | See "Script-path resolution" below |
+| `Blocked: script path resolves outside the scripts directory` | The `script` path resolves (after following symlinks) to somewhere outside `~/.hermes/scripts/` | Absolute paths and symlinks are both rejected — use a **wrapper file** (§4) |
 | (empty body, agent mode) | The LLM hit an error before producing output | Re-run with `cronjob(action='run')` and watch stderr |
 | Non-zero exit code | Script crashed | Run the script manually to see the traceback |
 | (no log file at all) | Job didn't tick — scheduler down or paused | `hermes cron status` |
@@ -88,27 +89,88 @@ echo "Scheduler looks at: $SCHED_PATH"
 echo "Script actually at: $ACTUAL"
 ```
 
-**Three fixes, pick whichever is cleanest for the deployment:**
+**🔴 2026-11-18 修订：下面这三种「修法」在当前 Hermes 版本里 **两种是错的**。**
+实测（`cron/scheduler.py:851-900` 的 `_run_job_script()`）：
 
-1. **Change the cron job's `script` field to the absolute path** (preferred —
-   survives refactors):
-   ```python
-   cronjob(action='update', job_id='<id>', script='/home/ubuntu/.hermes/cron/scripts/skill-backup.sh')
-   ```
-2. **Symlink the scheduler's expected path to the real one:**
-   ```bash
-   mkdir -p ~/.hermes/scripts/cron/scripts
-   ln -sf /home/ubuntu/.hermes/cron/scripts/skill-backup.sh \
-          ~/.hermes/scripts/cron/scripts/skill-backup.sh
-   ```
-3. **Move the script to the scheduler's expected location** (only if option 1
-   and 2 don't fit).
+- **绝对路径（曾标注为 "preferred"）现在无效** —— `cronjob(action='update',
+  script='/abs/path')` 会被工具层直接拒绝：
+  `Script path must be relative to ~/.hermes/scripts/. Got absolute or
+  home-relative path: '...'. Place scripts in ~/.hermes/scripts/ and use just
+  the filename.`
+- **软链接现在无效** —— 调度器对 `script` 做 `Path(...).resolve()`（**跟随软链接**），
+  再校验结果必须仍在 `~/.hermes/scripts/` 内。软链接指向 `~/.hermes/cron/scripts/`
+  ⇒ resolve 后落在 scripts 目录之外 ⇒ 被拦截：
+  `Blocked: script path resolves outside the scripts directory (...)`。
+  更糟的是软链接**通过了路径校验后仍会污染状态**：Python 的 `__file__` 指向
+  链接路径 ⇒ 脚本里 `os.path.dirname(os.path.abspath(__file__))` 推出的状态文件
+  目录变成链接目录 ⇒ **去重/历史文件分裂成两份**（实测
+  `.xhs_escape_visited.json` 同时出现在真实目录和链接目录，两边各自增长）。
 
-Always re-run the job once after the fix:
-```bash
-hermes cron run <job_id>
-cat ~/.hermes/cron/output/<job_id>/<newest>.md   # confirm success
+**✅ 唯一可靠的修法：在 `~/.hermes/scripts/` 下放一个 wrapper 文件。**
+wrapper 是**真实文件**（能扛过 `resolve()`），内部再以真实路径执行生产脚本：
+
+```python
+# ~/.hermes/scripts/cron/scripts/<name>.py  —— Python wrapper
+import os, runpy, sys
+REAL_SCRIPT = "/home/ubuntu/.hermes/cron/scripts/<name>.py"
+if not os.path.isfile(REAL_SCRIPT):
+    sys.stderr.write(f"wrapper: target script missing: {REAL_SCRIPT}\n")
+    raise SystemExit(2)
+_real_dir = os.path.dirname(REAL_SCRIPT)
+if _real_dir not in sys.path:
+    sys.path.insert(0, _real_dir)   # 让 `from config_loader import ...` 可导入
+runpy.run_path(REAL_SCRIPT, run_name="__main__")
 ```
+
+```bash
+# ~/.hermes/scripts/cron/scripts/<name>.sh  —— shell wrapper
+exec bash /home/ubuntu/.hermes/cron/scripts/<name>.sh
+```
+
+`runpy.run_path()` 的两个好处（软链接和"移动脚本"都没有）：
+① `__file__` = 真实路径 ⇒ 脚本自己的 `_SCRIPT_DIR` 推导出的状态文件目录不变
+⇒ **状态文件不会分裂**；
+② `sys.path[0]` = 真实脚本目录 ⇒ `from config_loader import get_mail_config`
+仍然解析到 `~/.hermes/cron/scripts/config_loader.py`。
+⚠️ wrapper 里**不要**用 `os.chdir` 替代 `sys.path.insert` —— `chdir` 不改
+`sys.path`，`config_loader` 会 ImportError。
+
+**⚠️ "把脚本移到 `~/.hermes/scripts/` 下" 也不是好方案**：脚本内部硬编码的
+`/home/ubuntu/.hermes/cron/scripts/...` 引用（visited 文件、扩写模块、
+`config_loader` 位置）会全部失效。wrapper 不动生产脚本，是唯一零副作用的方案。
+
+**验证必须用调度器自己的入口**，不要靠肉眼看路径：
+
+```bash
+cd ~/.hermes/hermes-agent && python3 -c "
+import sys; sys.path.insert(0, '/home/ubuntu/.hermes/hermes-agent')
+from cron.scheduler import _run_job_script
+ok, out = _run_job_script('cron/scripts/<name>.py')
+print('success:', ok); print(out[:500])
+"
+```
+
+这会复刻调度器的完整校验链（resolve → 目录归属 → 存在性 → 解释器选择 →
+`cwd=path.parent` → `HERMES_HOME`/`HOME` 环境），返回 `(success, output)`。
+**这是 ground truth** —— 前面的 `ls`/`find` 只能证明文件在，不能证明调度器能跑它。
+
+修完 job 的 `script` 字段仍保持**相对路径**（`cron/scripts/<name>.py`），
+指向 wrapper：
+
+```python
+cronjob(action='update', job_id='<id>', script='cron/scripts/<name>.py')
+```
+
+⚠️ **修完必查状态文件有没有分裂**（跑一次 wrapper 后）：
+```bash
+ls -la ~/.hermes/cron/scripts/.<name>_visited.json \
+       ~/.hermes/scripts/cron/scripts/.<name>_visited.json 2>&1
+```
+链接目录那份若出现 ⇒ 说明 wrapper 没生效或用错了修法，删掉它并把真实目录那份
+恢复原值。**测试跑 wrapper 会消耗生产状态**（比如消耗去重池条目、生成多余产物）
+—— 测完要按原值还原。
+
+详见 `references/script-not-found-case-study.md`。
 
 ### 5. SMTP / credential failure deep-dive (delivery-side silent failures)
 
@@ -297,6 +359,56 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
 - **Multiple jobs can hit the same bug at once.** When one cron job's script
   path is wrong, check whether other jobs use the same path pattern — they
   almost certainly do. Fix all of them in one pass.
+
+- **🔴 2026-11-18: the "three fixes" for script-path resolution were two-thirds
+  wrong.** Absolute path ⇒ tool rejects it; symlink ⇒ scheduler's `resolve()`
+  guard blocks it AND it splits the script's state file into two. The
+  **wrapper-file** approach is the one that actually works. Read §4 before
+  trying to fix a `Script not found` job — the older advice in this skill
+  predates the scheduler's path guard. Full transcript + the wrapper
+  implementations:
+  `references/script-not-found-case-study.md`.
+
+- **⚠️ A `no_agent` job that has NEVER succeeded looks like "the script is
+  broken" but isn't.** Count the failures before investigating the script
+  body: `ls ~/.hermes/cron/output/<job_id>/*.md | wc -l` vs
+  `grep -l "Script not found" ~/.hermes/cron/output/<job_id>/*.md | wc -l`.
+  If those two numbers are EQUAL, the script never ran even once — the fault
+  is 100% path resolution, and reading the script's code is wasted effort.
+  Measured 2026-11-18: 4 jobs, 172 runs each, 172/172 `Script not found`
+  since 2026-05-31 — five months of silent failure nobody noticed because
+  the failure report scrolled past. **Check the failure COUNT early, and
+  report the duration ("broken since <date>, N consecutive failures")** —
+  the duration is what makes the user realize this is not new.
+
+- **🔴 `no_agent` jobs are the ones that fail silently** — an agent-mode job
+  always produces *some* response, so a broken agent job is visible. A
+  `no_agent` job whose script can't be found produces only a one-line
+  scheduler log. **When a user says "the cron isn't running", enumerate ALL
+  jobs and check each one's output log for `Status: script failed`** — one
+  broken script path can disable four jobs simultaneously.
+
+- **⚠️ Fixing a `no_agent` job's path can UNCOVER duplicate scheduling.** A
+  job that never ran was harmless; once it runs, it may collide with classic
+  crontab. Check `crontab -l` against `jobs.json` schedules for the same
+  script BEFORE declaring victory. Two distinct failure modes to separate:
+  - *agent-mode* + classic cron on the same script ⇒ usually fine (the agent
+    audits rather than regenerates; check artifact counts to confirm).
+  - *no_agent* + classic cron on the same script ⇒ **real double-fire** — two
+    products, two emails, two pushes. On 2026-11-18 this applied to
+    `wechat-article-daily.py` (classic 22:00 vs Hermes 07:00) and
+    `skill-backup.sh` (classic 03:00 vs Hermes 03:00 — same minute).
+  **Back up the crontab before editing it** (`crontab -l > /tmp/crontab_backup_$(date +%Y%m%d_%H%M).txt`)
+  and ask the user which scheduler to keep rather than deleting unilaterally —
+  the classic cron entries also drive scripts with NO Hermes job.
+
+- **⚠️ Verify what a script ACTUALLY delivers before assuming it delivers.**
+  `wechat-article-daily.py` has functions named `send_md_to_feishu()` and
+  `send_md_via_hermes()` that contain **no send call at all** — they only
+  write a local `.md` file and return its path. Grep for the transport
+  (`smtplib`, `requests`, `subprocess`, `hermes send`) rather than trusting
+  function names. A misleading name can make you report "pushed to Feishu"
+  for something that only touched the local disk.
 
 - **`cronjob(action='run')` runs once on the next tick, not immediately.**
   If you need synchronous verification, execute the script directly via
@@ -1286,7 +1398,9 @@ Related case-detail references:
 - `references/outage-readme-template.md` — README entry template
 - `references/readme-append-truncation-disaster.md` — **2026-11-16 事故：「读-改-写」追加 README 把 822 行截成 513 行、14 段历史消失**。含 `read_file` 500 行静默截断的机制、`cat >>` / `open('a')` 的正确写法、**从 `~/.hermes/state.db` 的 `messages.tool_calls` 逐段还原**的完整代码（三个坑：JSON 转义层 / 按工具类型取值 / 同夜多候选去重）、以及三道追加后核验。⚠️ 只增不减的日志文件（outbox README / `topic_history.json` / `jobs.json`）**只追加，绝不读改写**
 - `references/qq-smtp-rate-limit-pitfall.md` — rate-limit variant
-- `references/script-not-found-case-study.md` — path-resolution case study
+- `references/script-not-found-case-study.md` — **path-resolution case study（2026-11-18 修订：原「绝对路径」修法已失效，软链接会被 resolve() 守卫拦截且会分裂状态文件；唯一可行解是 wrapper 文件）**
+- `scripts/verify_cron_scripts.py` — **一键验证 no_agent job 的脚本真的能跑**：驱动调度器自己的 `_run_job_script()`（复刻 resolve → 目录守卫 → 存在性 → 解释器 → cwd → env 全链路），并把「SMTP/凭据等下游失败」与「路径本身失败」分开判定（前者记为 `PASS_PATH`）。**`ls` 只能证明文件在，不能证明调度器跑得动 —— 验证必须用它**。用法：`python3 verify_cron_scripts.py [--json]`
+- `templates/cron_wrapper_python.py.tmpl` / `templates/cron_wrapper_shell.sh.tmpl` — **wrapper 模板**：复制到 `~/.hermes/scripts/<rel_dir>/<name>.py|.sh` 并替换 `__NAME__` / `__REAL_PATH__` 占位符。改脚本路径时直接复制模板，不要手敲
 - `productivity/content-platforms/scripts/audit_rendered_article.py` — **产物审计脚本**：测已渲染 HTML 的正文中文数、结构完整性、配图数与 `no text`、标签数、微头条 `content` 字数区间（`--pool` 核对选题池，`--json` 机器可读）。改生成器后跑它，别手写正则数字数
 - `productivity/content-platforms/references/topic-pool-rotation-and-length-engineering.md` — 内容质量四缺陷（池子/LRU/`str.format()`/清单漂移）+ **两个测量陷阱**（要测装配后的产物；微头条字数测 `content` 而非渲染块）
 
@@ -1330,6 +1444,20 @@ find ~/.hermes -name 'skill-backup.sh' -type f 2>/dev/null
 # Check expected vs actual scheduler resolution
 echo "Expected: ${HOME}/.hermes/scripts/<script-field-as-stored>"
 test -f "${HOME}/.hermes/scripts/<script-field-as-stored>" && echo "OK" || echo "MISSING"
+
+# 🔴 GROUND TRUTH: run the scheduler's own entry point (resolve + guard +
+# interpreter + cwd + env). Use THIS to verify a script-mode job actually runs —
+# `ls` proves existence, not runnability.
+cd ~/.hermes/hermes-agent && python3 -c "
+import sys; sys.path.insert(0, '/home/ubuntu/.hermes/hermes-agent')
+from cron.scheduler import _run_job_script
+ok, out = _run_job_script('cron/scripts/<name>.py')
+print('success:', ok); print(out[:800])
+"
+
+# ⚠️ After fixing paths, check for STATE-FILE SPLITTING (symlink fix causes it):
+ls -la ~/.hermes/cron/scripts/.<name>_visited.json \
+       ~/.hermes/scripts/cron/scripts/.<name>_visited.json 2>&1
 
 # Trigger the job manually
 hermes cron run <job_id>
