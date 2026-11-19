@@ -109,6 +109,16 @@ NEG_TRIGGER = re.compile(
 DONE_ACT = re.compile(
     r'(?:出了|给了|拿了|花了|掏了|转了|寄了|交了|管了|来了|回了|过问了|'
     r'拿出|拿出钱|汇款|打款)')
+# 🔴 2026-11-19 实测：段⑥ 只认「同一动词」，导致**已知真缺陷漏报** ——
+# 标题断言「一分没出」（动词=出），正文写「小儿子转了5000块过来」（动词=转），
+# 动词不同 ⇒ 规则不 fire ⇒ 11-18 报的丧葬费硬伤，扫描器全程报 0 命中。
+# 修法：**加一条粗筛兜底**（转账类动词 + 邻近金额），并按「是否已写明解释句」
+# 分级标注。⚠️ 本段是**粗筛不是判定器** —— 语义上「出了丧葬费」≠「出了份子钱」，
+# 正则分不出主体与语义，**命中必须人工核对**（命中 ≠ 缺陷）。
+TRANSFER_ACT = re.compile(r'(?:转了|给了|掏了|寄了|汇了|打过来|打了钱|交了)')
+# 解释句标志：正文里明写「这钱不算…」「这是…不算…」⇒ 已按缺陷二十一修过
+DISCLAIMER = re.compile(r'(?:不算|不算是|不属于|不是他出|不是她出|不算他|不算她|'
+                        r'是[^。]{0,8}补的|后补|事后补)')
 NUM_RE = re.compile(r'(\d+(?:\.\d+)?)\s*(?:块|元|万|块钱)')
 
 
@@ -130,6 +140,31 @@ def check_negative_promise(title, hook, body):
                     'contradicted_by': d.group(0),
                     'context': ctx.strip(),
                     'amounts_nearby': nums,
+                    'note': '同一动词 ⇒ 高置信度，仍需人工核对主体',
+                })
+                break
+        else:
+            # 兜底：动词不同但出现「转账类动作 + 邻近金额」⇒ 粗筛信号
+            for d in TRANSFER_ACT.finditer(body or ''):
+                ctx = (body or '')[max(0, d.start() - 50):d.end() + 50]
+                nums = NUM_RE.findall(ctx)
+                if not nums:
+                    continue
+                if re.search(r'[出给拿花掏转寄交管来回问]', neg) == re.search(
+                        r'[出给拿花掏转寄交管来回问]', d.group(0)):
+                    continue
+                explained = bool(DISCLAIMER.search(ctx))
+                out.append({
+                    'negative_claim': neg,
+                    'contradicted_by': d.group(0),
+                    'context': ctx.strip(),
+                    'amounts_nearby': nums,
+                    'note': ('粗筛：动词不同（出 vs %s）但正文出现转账动作+金额 ⇒ '
+                             '**必须人工核对主体与语义**（命中 ≠ 缺陷）；'
+                             '%s'
+                             % (d.group(0)[0],
+                                '已见解释句 ⇒ 大概率已按缺陷二十一修过'
+                                if explained else '未见解释句 ⇒ 疑似真缺陷')),
                 })
                 break
     return out
@@ -146,8 +181,9 @@ def scan(pool, ext_map):
     for t in pool:
         d = t.get('direction', '?')
         ext = ext_map.get(d, (None, None))
-        ea = (ext[0] if ext and len(ext) > 0 and ext[0]) or ''
-        eb = (ext[1] if ext and len(ext) > 1 and ext[1]) or ''
+        ea = ext[0] if (ext and len(ext) > 0 and ext[0]) else ''
+        eb = ext[1] if (ext and len(ext) > 1 and ext[1]) else ''
+
 
         story_a = (t.get('story_a') or '') + (t.get('story_a_dialogue') or '') \
             + (t.get('story_a_ending') or '') + ea
@@ -156,12 +192,26 @@ def scan(pool, ext_map):
         nb = norm(body)
 
         # ① 钩子整句复读
+        # 🔴 2026-11-19 实测：只按句号切分会把引语前的「她说：」前缀粘连进句子，
+        # 导致整句不再是正文子串 ⇒ **漏报**（远居赡养「孩子的心是真的，可手不在你身边。」
+        # 在钩子与 story_a_ending 各出现一次，扫描器却报 0 命中）。
+        # 修法：**额外单独检测钩子里的每一段引语**（引号内 ≥6 字）是否在正文出现，
+        # 命中即报「引语级复读」—— 引语级重复是设计约束（HOOK_PROMISE 要求兑现），
+        # 但必须**人工核对兑现点有没有带新细节**（复制粘贴式兑现 = 缺陷）。
         for sent in re.split(r'[。！？；\n]', t.get('hook') or ''):
             ns = norm(sent)
             if len(ns) >= 6 and ns in nb:
                 res['1_hook_echo'].append({
                     'direction': d, 'sentence': sent.strip(),
                     'note': '修法：改正文那一句，不动钩子；断言用 count()==1'})
+        for q in quotes(t.get('hook') or ''):
+            nq = norm(q)
+            if len(nq) >= 6 and nq in nb:
+                res['1_hook_echo'].append({
+                    'direction': d, 'sentence': q.strip(),
+                    'note': '引语级复读（HOOK_PROMISE 要求兑现 ⇒ 属设计约束）：'
+                            '人工核对兑现点是否带新细节（动作/心理/后果），'
+                            '纯复制钩子原句才是缺陷'})
 
         # ② 标题引语 vs 正文（设计约束）
         for q in quotes(t.get('title') or ''):
@@ -233,6 +283,11 @@ def main():
         return 2
 
     pool = list(getattr(mod, 'TOPICS_POOL', []) or [])
+    # 🔴 2026-11-19 实测：**微头条池根本没被扫** —— 只装配了 TOPICS_POOL，
+    # ⇒ 段⑥（否定承诺）只在长文池上跑，而 11-18 报的丧葬费硬伤**在微头条池**里，
+    # 扫描器全程报「无命中」＝假绿。
+    # 修法：把 MICRO_TOPICS_POOL 一并扫（微头条正文在 content + micro_dialogue）。
+    micro_pool = list(getattr(mod, 'MICRO_TOPICS_POOL', []) or [])
     ext_map = {}
     if args.extensions:
         try:
@@ -242,12 +297,18 @@ def main():
             print(f'❌ 扩写模块加载失败: {e}')
             return 2
 
-    if not pool:
-        print('❌ 装配不出正文（TOPICS_POOL 为空）⇒ 参数用错或脚本已改，'
-              '不是内容有问题')
+    if not pool and not micro_pool:
+        print('❌ 装配不出正文（TOPICS_POOL 与 MICRO_TOPICS_POOL 均为空）⇒ '
+              '参数用错或脚本已改，不是内容有问题')
         return 2
 
     res = scan(pool, ext_map)
+    if micro_pool:
+        res_micro = scan(micro_pool, ext_map)
+        for k, v in res_micro.items():
+            for item in v:
+                item['pool'] = '微头条'
+            res[k].extend(v)
 
     if args.json:
         print(json.dumps(res, ensure_ascii=False, indent=2))
