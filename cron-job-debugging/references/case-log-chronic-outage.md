@@ -39,6 +39,7 @@ Cases A–F), `toutiao-cron-outage-2026-09.md` (Cases S+, failure #34 onward),
 | 18 | **Don't write a bespoke script for a 30-second cleanup** — a bash one-liner is correct; over-engineering one-off tooling is an anti-pattern. | SKILL.md Pitfalls (Case P) |
 | 19 | **Audit green ≠ content right** — `audit`/`lint`/script exit 0 + Feishu `message.get` verified = the *delivery* is fine, not the *content*. Cross-field and cross-night relations are a blind spot of every current rule. | `productivity/content-platforms/references/cross-field-defect-detection.md` |
 | 20 | **Cross-field detection must call the real production function** — reimplementing the selection logic in the test script silently tests the wrong thing (measured "fix had no effect" when the fix was fine). | same reference |
+| 21 | **🔴 Tool-call budget can be exhausted BEFORE the mandatory README append** — on 2026-11-21 (failure #89) the session did the whole diagnostic sweep + 7 content fixes and then hit the max-tool-call limit with `outbox/toutiao/README.md` **still not appended** and the fix **not yet re-verified** (`py_compile` + lint + isolated harness all pending). ⇒ The README append and the fix-verification are **not** optional tail tasks; they must be interleaved, not deferred to the end. | Case Q-2026-11-21 below |
 
 ---
 
@@ -427,8 +428,96 @@ checker exit 0, isolated render + `audit_rendered_article.py` exit 0 (body 3422 
 structure 10/10, micro content 10/10 within 150–250), hook-repetition hits 0/10,
 cross-night collisions 0/60, and production history files byte-identical afterwards.
 
-## Case M — `last_status=ok` masks delivery failure (2026-09-14)
+## Case Q-2026-11-21 — 89th consecutive failure: tool-call budget exhaustion is a real failure mode of the README-first workflow
 
+The `toutiao-article-daily.py` cron failed for the **89th consecutive night** (since
+2026-09-27). Nothing new on the SMTP side — same revoked auth code, same explicit
+535, same Case H dispatch. What was genuinely new this cycle was an **operational**
+lesson about how the workflow itself can fail.
+
+### 🔴 Lesson 1 — The README append and the fix-verification are NOT tail tasks
+
+The session did, in order: read the generator + the extra-pools, confirm the cron
+fired exactly once (classic crontab 20:30:01), probe SMTP (one confirmation, 535),
+verify the Feishu fallback delivered (`message_id=om_x100b7f2ca220c4a0df8137f9b5508fd`
+→ `success=True`, `code=0`, `msg_type=file`, `deleted=False`), run the full audit
+suite (all exit 0), then **read the whole rendered article by hand** and find
+**7 reader-visible defects** — and fix all 7 in the source.
+
+Then the session hit the **max tool-call limit** with two things still outstanding:
+
+1. `outbox/toutiao/README.md` **was not appended** with the
+   `## 2026-11-21（持续中 — 第89天）` entry — the *mandatory* durable action.
+2. The 7 source fixes were **not re-verified** (`py_compile` + `lint` + isolated
+   harness all still pending).
+
+⇒ **The two mandatory terminal actions were scheduled last and therefore got cut.**
+Both are cheap (one `cat >>` heredoc; one `py_compile` + one lint call), but
+scheduling them last makes them the *most likely* things to be lost.
+
+**Rule (supersedes the old "append EARLY" advice with a stronger form):**
+
+> **Do the README append and the post-fix verification FIRST, not last.**
+> Concretely, for any session that will edit production source:
+> 1. Append the README entry **before** starting content edits — the outage log
+>    entry does not depend on the content fixes.
+> 2. Run `py_compile` + lint **immediately after each source edit batch**, not
+>    once at the end.
+> 3. Reserve the last tool calls for **re-verification**, and if the budget is
+>    tight, **skip further content polishing** instead of skipping verification.
+>
+> Rationale: an unverified fix is a *known-unknown* that the next session must
+> rediscover; a polished-but-unverified article is the same. Verification has
+> strictly higher value than additional defect-hunting.
+
+### Lesson 2 — A "no probe" rule needs one deliberate exception
+
+Case H/J say: at N≥10, **skip** the SMTP probe — the README already records the
+diagnosis, and a probe burns tokens to re-learn a known fact. This session ran
+exactly **one** probe (`probe_smtp.py`) and it paid off: the transcript gave the
+explicit QQ 535 text (`Account is abnormal, service is not open, password is
+incorrect, login frequency limited, or system is busy`), which let the report
+state the credential's *current* status rather than asserting it from memory.
+
+**Refinement:** "skip the probe" means "skip the *diagnostic loop*", not "never
+confirm". **One** confirmation is cheap and keeps the report honest; the thing to
+avoid is re-running the full port-sweep / transcript-dump sequence. Keep the
+distinction: **one probe = allowed and useful; a diagnostic *loop* = wasted.**
+
+### Lesson 3 — The already-delivered artifact is pre-fix; say so explicitly
+
+Seven defects were found and fixed *after* the night's HTML had already gone out
+via Feishu. The reader's copy is the **pre-fix** version. The report MUST state:
+
+> 「今晚已投递的那份仍是修复前版本，修复从明晚首跑生效」
+
+and MUST NOT re-run the production script (Case R: a second run = a second
+artifact + a polluted `topic_history`). The fix lands on the next scheduled run.
+
+### Today's run (2026-11-21, failure #89)
+
+- **Generated**: 长文《78岁老人住进养老院，一个月8000，她把账算给孩子听，谁都不说话了》（养老院方向）+ 微头条《62岁老太太买"养生"花了2万1，儿女发现后她说了句话》《退休时发现工龄少记了3年，重新核定后每月多领62元》
+- **Cron trigger**: classic crontab fired **exactly once** at 20:30:01. Outbox contained only `20261121_2030_养老院.html` (32304 B) + `PENDING_20261121.html` + `STANDBY_20261121.txt` ⇒ **0 runs allowed** for the reporting session (Case R).
+- **HTML backup**: `outbox/toutiao/20261121_2030_养老院.html` — body 3320 CJK chars (article 3762), structure 10/10, 7 image blocks, 13 hashtags.
+- **Feishu delivery**: SUCCESS + **read back** — `message_id=om_x100b7f2ca220c4a0df8137f9b5508fd`, `success=True`, `code=0`, `msg_type=file`, `deleted=False`, `content.file_name=20261121_2030_养老院.html`.
+- **Audit suite**: `audit_rendered_article.py` exit 0 · `lint_content_consistency.py` exit 0 (20 long + 10 micro topics, no numeric-chain breaks) · `verify_cross_night_collisions.py` exit 0 (**0/60** cross-night twin collisions, **10/10** direction coverage both pools) · `scan_pool_defects.py` exit 0 · script exit 0.
+- **Content defects found by hand despite every light green**: 7 — hook-vs-body scene conflict, hook-vs-viewpoint polarity conflict, golden-vs-story fact conflict, collective-gender mislabel, institution-name drift, cognition-timing conflict, micro-article numeric-chain break (5 numbers). Details + fixes:
+  `productivity/content-platforms/references/scene-consistency-and-actor-role-audit.md`.
+- **Credential**: unchanged dead code. `config.yaml` (`mail.smtp_pass`) and `~/.hermes/.env` (`QQ_EMAIL_AUTH_CODE`) hold the **same** string ⇒ **9 scripts** share it. Fix = regenerate in the QQ web UI and update **both** places.
+- **Blast radius (unchanged)**: 9 scripts share `mail.smtp_pass` — `toutiao-article-daily.py`, `wechat-article-daily.py`, `unified-content-daily.py`, `daily_report.py`, `bithappy_email_pro.py`, `resend_toutiao_today.py`, `xhs-travel-daily.py`, `xhs-escape-weekend.py`, `xiaohongshu-travel-daily.py`. One rotation restores all nine; then `scripts/resend_outbox_html.py toutiao --all` back-fills.
+- **NOT DONE (budget cutoff)**: README append for 第89天; post-fix `py_compile` + lint + isolated-harness verification.
+
+### Refined decision rule at N≥89
+
+| Failure count | Probe? | Article inline? | Feishu attachment? | Content audit? | README? | Fix verification? |
+|---|---|---|---|---|---|---|
+| 1-9 | Yes | Yes | Yes | Yes | Yes | Yes |
+| 10-29 | Skip | NO | Yes | Yes | Yes | Yes |
+| 30-52 | Skip | NO | Yes | Yes | Yes | Yes |
+| 53-88 | Skip | NO | Yes | Yes | **Yes — mandatory** | Yes |
+| **89 (today)** | **One confirmation (allowed)** | NO | **Yes — verified** | **Yes — 7 defects fixed** | **Pending — budget cutoff** | **Pending — budget cutoff** |
+
+## Case M — `last_status=ok` masks delivery failure (2026-09-14)
 Full case text: `references/case-m-last-status-masking.md`. Core lesson: when a cron script
 degrades gracefully (catches the send failure, saves HTML to outbox, returns False but
 `main()` exits 0), the scheduler records `last_status: "ok"` — a green light for a cron that
