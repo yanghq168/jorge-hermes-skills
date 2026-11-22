@@ -448,6 +448,10 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
     and go straight to the user-fix instructions. At N≥20 the probe is purely
     ceremonial; one line of AUTH LOGIN output (the `password -> 535:` line)
     is the entire diagnostic value, the rest is noise.
+    The full 8-step diagnostic sequence for a *fresh* agent on a chronic outage
+    (outbox count → README → probe → port sweep → DNS → terse report → README
+    extension) lives in `references/case-log-chronic-outage.md` Case J — read it
+    there, not here.
 
 - **The "From header invalid" error mode (2026-08-23) was fixed and has
   not recurred.** If you see `550 ... "From" header is missing or invalid.
