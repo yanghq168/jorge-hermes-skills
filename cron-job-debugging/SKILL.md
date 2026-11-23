@@ -308,6 +308,38 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
 
 ## Pitfalls
 
+- **🔴 2026-11-23: THIS skill file's own size is a live hazard — keep it under ~75k chars.**
+  On 2026-11-22 the reporting agent burned its entire iteration budget on
+  `skill_manage` retries because `SKILL.md content is 100,314 characters
+  (limit: 100,000)`. The session ended with `Turn ended:
+  reason=max_iterations_reached(60/60)` — **the report was marked
+  `last_status=error` even though the article had been generated and
+  delivered successfully.** Root cause chain:
+  1. `skill_manage` refuses writes to a SKILL.md at/over 100,000 chars.
+  2. A near-limit skill (this one was **96,668 chars**) leaves no headroom, so
+     any append fails and the agent retries the same call repeatedly.
+  3. Each retry costs an iteration. The agent's final response is then never
+     finalized ⇒ the scheduler records `error` and puts the **report body**
+     into `last_error` (instead of an exception summary).
+  - **Symptom to recognize**: `jobs.json` shows `last_status: error` but
+    `last_error` starts with `RuntimeError: ## 📰 …` (a markdown heading)
+    rather than a traceback ⇒ **the agent session ran out of budget, not the
+    script**. Check `~/.hermes/logs/agent.log` for
+    `Turn ended: reason=max_iterations_reached`.
+  - **Prevention**: keep this SKILL.md **≤ 75k chars**. Measure with
+    `python3 -c "print(len(open('SKILL.md',encoding='utf-8').read()))"`.
+    The `## Pitfalls` section is the usual offender — long case narratives
+    (measured 2026-11-23: **62,010 chars = 64% of the whole file**).
+  - **The fix when it's over**: move the long narrative blocks into
+    `references/case-log-chronic-outage.md` (or a new `references/` file) and
+    leave a **one-line rule + a pointer** in SKILL.md. Keep the *actionable*
+    rule inline; move the *narrative* down. Don't delete history — the
+    reference files are the durable record.
+  - **Corollary for any skill, not just this one**: if a `skill_manage` write
+    is rejected for size, **do not retry the same write**. Shrink the target
+    file first, or write the detail to a `references/` support file instead
+    (`skill_manage(action='write_file', file_path='references/...')`).
+
 - **Headers lie, bodies don't.** A log can show `Status: script failed` but
   also contain the exact reason — read the body, not just the header line.
 

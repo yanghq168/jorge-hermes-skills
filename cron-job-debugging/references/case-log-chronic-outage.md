@@ -11,7 +11,10 @@ Companion references: `toutiao-cron-outage-2026-08.md` (original outage,
 Cases A–F), `toutiao-cron-outage-2026-09.md` (Cases S+, failure #34 onward),
 `toutiao-cron-outage-2026-10-week4.md` (Cases X/Y, failure #59+),
 `smtp-credential-failure-case-study.md` (full SMTP transcripts),
-`case-m-last-status-masking.md`, `feishu-stale-thread-id-delivery-failure.md`.
+`case-m-last-status-masking.md`, `feishu-stale-thread-id-delivery-failure.md`,
+`no-agent-false-error-reporting.md` (§C = agent-mode **iteration-budget
+exhaustion** — the third kind of `last_status: error`, where the article was
+delivered fine but the *report session* died).
 
 ---
 
@@ -41,6 +44,8 @@ Cases A–F), `toutiao-cron-outage-2026-09.md` (Cases S+, failure #34 onward),
 | 20 | **Cross-field detection must call the real production function** — reimplementing the selection logic in the test script silently tests the wrong thing (measured "fix had no effect" when the fix was fine). | same reference |
 | 21 | **🔴 Tool-call budget can be exhausted BEFORE the mandatory README append** — on 2026-11-21 (failure #89) the session did the whole diagnostic sweep + 7 content fixes and then hit the max-tool-call limit with `outbox/toutiao/README.md` **still not appended** and the fix **not yet re-verified** (`py_compile` + lint + isolated harness all pending). ⇒ The README append and the fix-verification are **not** optional tail tasks; they must be interleaved, not deferred to the end. | Case Q-2026-11-21 below |
 | 22 | **🔴 Lesson 21 alone was not enough — the same thing happened again on 2026-11-22 (failure #90).** A *policy sentence* has no forcing function; defect-hunting (visible, rewarding) always crowds out the README append (silent chore). ⇒ **Make the README append tool-call #1, before any diagnostic.** Also: pipe noisy audit tools to a file and print only the verdict line (`> /tmp/x.txt 2>&1; echo "EXIT=$?"; tail -6 /tmp/x.txt`) to buy context, and **verify delivery by read-back** (Feishu `message.get` → assert `content.file_name` matches tonight's artifact, not just `msg_type=file`). | Case Q-2026-11-22 below |
+| 23 | **🔴 The README-append discipline was still not followed on 2026-11-22 — the REAL cause was a self-inflicted tool failure.** `skill_manage` refused to write `SKILL.md` (`content is 100,314 characters (limit: 100,000)`) and the agent retried the same rejected call 3× until the iteration cap (60/60) killed the session ⇒ `last_status=error` with the **report body** stuffed into `last_error`. ⇒ **A rejected write must never be retried verbatim; shrink the target file or move detail to `references/`.** Keep this SKILL.md ≤ 75k chars. | Case Q-2026-11-23 below |
+| 24 | **🔴 2026-11-23: a 6-night README gap (11-18 → 11-23) and a false-positive audit finding in the same session.** ① README had to be backfilled with **6** entries at once (heading count 42 → 48) — backfill discipline must cover **every** missed night, and every backfilled night's facts must be re-read from its artifacts (not the previous session's conclusions). ② `check_pool_type_false_positives.py` run **without `--extensions`** reported a hook quote as "unfulfilled" — the quote was in `toutiao_story_extensions.py`. **Omitting a checker input file manufactures false positives, and false positives are worse than misses** (they induce editing correct copy). | Case Q-2026-11-23 below |
 
 ---
 
@@ -651,6 +656,164 @@ matches tonight's artifact.**
 > carries the outage state across sessions; the defect-hunting is optional polish that
 > can always be deferred to the next night. When the budget is tight, cut the polish —
 > never the append, never the verification.**
+
+## Case Q-2026-11-23 — 91st consecutive failure: the 11-22 "error" was self-inflicted, and the README gap was 6 nights wide
+
+The `toutiao-article-daily.py` cron failed for the **91st consecutive night**
+(since 2026-09-27). Same revoked auth code, same explicit 535, same Case H
+dispatch. Two genuinely new findings this cycle — and both are about the
+**agent's own machinery** rather than about SMTP or content.
+
+### 🔴 Lesson 1 — `last_status: error` on 11-22 was an iteration-budget kill, not a delivery failure
+
+The previous night (11-22) had been recorded in `jobs.json` as
+`last_status: error`. The tempting reading is "delivery failed harder than
+usual." The truth is the opposite: **the article was generated and delivered
+successfully**, and the *reporting session* ran out of budget before it could
+finalize its response.
+
+Evidence chain (all re-verified this session, not copied):
+
+| Signal | Value |
+|---|---|
+| `jobs.json` `last_error` | `RuntimeError: ## 📰 头条号日报 · 2026-11-22（20:30）` — **a markdown report body**, not an exception summary |
+| `agent.log` | `Turn ended: reason=max_iterations_reached(60/60) model=MiniMax-M3 api_calls=60/60 budget=31/60 tool_turns=60 last_msg_role=assistant response_len=3540` |
+| `errors.log` | `ERROR cron.scheduler: Job '头条号文章' failed: RuntimeError: ## 📰 头条号日报 …` |
+| Feishu delivery | `message_id=om_x100b7f1a4a3448a0dc1c81f8ca10551` → read-back: `msg_type=file`, `deleted=False`, `file_name=20261122_2030_再婚财产.html` |
+| Outbox artifact | `20261122_2030_再婚财产.html` (32356 B) + `PENDING_20261122.html` + `STANDBY_20261122.txt` — one of each, no double-fire |
+
+**Mechanism** (`cron/scheduler.py` → `run_job()`): when the agent returns
+`result["failed"] is True` or `result["completed"] is False`, the scheduler
+does `raise RuntimeError(_err_text)` where `_err_text` falls back to
+`result["final_response"]`. So a session that dies mid-report has its
+**report text** recorded as the error message and `last_status` set to
+`error`. The same night also logged
+`Turn ended: reason=max_iterations_reached(16/16)` for the follow-up
+background-review turn.
+
+**Root cause (the part worth keeping):** the 11-22 session tried to append
+its findings to this very skill file and got **`skill_manage` rejected three
+times**:
+
+```
+SKILL.md content is 100,314 characters (limit: 100,000).
+Consider splitting it into a smaller SKILL.md with supporting files in
+references/ or templates/.
+```
+
+`cron-job-debugging/SKILL.md` was at **96,668 chars** — under the limit, but
+with almost no headroom. Each rejected write cost an iteration, the agent
+retried the same call, and the session hit the 60-iteration cap with the
+report unfinished.
+
+**⇒ Rules that generalize beyond this deployment:**
+1. **A rejected write is never retried verbatim.** Shrink the target file, or
+   move the detail into a `references/` support file via
+   `skill_manage(action='write_file', file_path='references/...')`.
+2. **Keep a class-level SKILL.md at ≤ 75k chars** so there is headroom for
+   the next append. Measured this session: the `## Pitfalls` section alone was
+   **62,010 chars = 64% of the file**, with 26 blocks over 800 chars — those
+   are **case narratives**, and narratives belong in `references/`.
+3. **`last_status: error` + content already delivered ⇒ don't re-run the
+   script.** Re-running is the instinct here and it is exactly wrong
+   (Case R): it produces a second artifact and pollutes `topic_history`.
+   Fix the *report* side (append the README entry, shrink the skill file),
+   not the *content* side.
+
+### 🔴 Lesson 2 — The README gap was **6 nights** wide, and backfill must re-verify each night
+
+`outbox/toutiao/README.md` had last been extended on **11-17 (第85天)**.
+The 11-18 → 11-23 entries (第86天 … 第91天) were **all missing** — the
+11-22 session died before it could append, and the 11-18 … 11-21 sessions
+had failed to append either. This is the third consecutive occurrence of the
+README gap (11-07, 11-21, 11-22), and the gap is *growing*, not stable.
+
+Backfilled all six with `cat >>` (never read-modify-write). Facts were
+sourced **from each night's artifacts**, and — critically — **every one of
+the six Feishu deliveries was re-read via the API rather than trusting the
+prior session's "delivered" claim**:
+
+```
+11-18  file  msg_type=file deleted=False  20261118_2030_远居赡养.html
+11-19  file  msg_type=file deleted=False  20261119_2030_兄弟姐妹.html
+11-20  file  msg_type=file deleted=False  20261120_2030_随礼人情.html
+11-21  file  msg_type=file deleted=False  20261121_2030_养老院.html
+11-22  file  msg_type=file deleted=False  20261122_2030_再婚财产.html
+11-23  file  msg_type=file deleted=False  20261123_2030_房产纠纷.html
+```
+
+Verification (all three, per the append template): heading count
+**42 → 48** (= +6, exactly the number of nights), last eight headings
+continuous, mojibake scan (`grep -cP '\x{FFFD}'`) = **0**.
+
+**⇒ Rules:**
+- A backfill must cover **every** missed night, and the heading-count
+  assertion is **+N where N = number of missed nights** (not always +1).
+- **Backfilled facts are re-verified, not copied.** "补记不等于抄旧结论"
+  (Case Q-2026-11-22) holds across many nights, not just one.
+- The `+1` assertion from the README template needs a generalization:
+  **the count must increase by exactly the number of entries you appended** —
+  use `before`/`after` counts, not a fixed `+1`.
+
+### 🔴 Lesson 3 — An audit checker run with the wrong arguments manufactures a false positive
+
+First run of the session:
+
+```
+$ python3 check_pool_type_false_positives.py --pool .../toutiao-article-daily.py
+【TOPICS_POOL】命中 1 条
+  · [再婚财产] 引语「我不是要跟孩子们争房子，我是想要一个能睡得着觉的地方。」未在正文兑现
+```
+
+This reads exactly like defect eight (hook promise unfulfilled) — the
+kind of thing the established discipline says to fix by editing the copy.
+**It was a false positive.** The quote *is* fulfilled — in
+`toutiao_story_extensions.py` line 100 — but that file was never passed, so
+the extension paragraph was not assembled into the body the checker
+inspected:
+
+```
+$ python3 check_pool_type_false_positives.py --pool .../toutiao-article-daily.py \
+      --extensions .../toutiao_story_extensions.py
+✅ 无命中。
+```
+
+**⇒ Rules:**
+1. **Omitting a checker's input file is a false-positive generator, and false
+   positives are more dangerous than misses** — a miss leaves correct copy
+   alone, a false positive induces editing correct copy. This is the same
+   lesson as "exit 1 means either 'content is broken' or 'the tool is
+   broken'", now with a third case: **"exit 1 because the tool was under-fed."**
+2. **Before editing copy for any 'promise not fulfilled' report, locate the
+   fulfillment point across ALL source files** (generator / extra-pool /
+   story-extensions). If the quote is found in a file you didn't pass, it's an
+   assembly problem, not a content problem.
+3. **Copy the full command, don't retype it.** All three checkers that accept
+   `--extensions` need it for a correct verdict.
+
+### Today's run (2026-11-23, failure #91)
+
+- **Generated**: 长文《**69岁**老人把房子过户给儿子后，儿媳说"这房子是我们的，你凭什么住"》（房产纠纷）+ 微头条《老两口**退休金差1600**，这钱到底该谁说了算》《老伴走了，**丧葬费**三个子女一分没出，最后是**大女儿**一个人掏的》
+- **Cron trigger**: classic crontab fired **exactly once** at 20:30:01 (`journalctl -u cron`; script banner appeared once) ⇒ **0 additional runs** (Case R).
+- **Artifact**: `outbox/toutiao/20261123_2030_房产纠纷.html` (32143 B; body **3389 CJK** / article 3831; structure **10/10**; 7 image blocks, `no text` × 11; 13 hashtags) + `PENDING_20261123.html` + `STANDBY_20261123.txt`.
+- **Feishu delivery**: SUCCESS + **read back** — `message_id=om_x100b7f77523c70a8c1e1a0026380f26`, `success=True`, `code=0`, `msg_type=file`, `deleted=False`, `file_name=20261123_2030_房产纠纷.html`.
+- **Audit suite** (exit codes read separately, never through a pipe): `audit_rendered_article.py` exit 0 · `lint_content_consistency.py` exit 0 (20 topics + 10 extensions, no numeric-chain / role / frequency contradictions) · `verify_cross_night_collisions.py` exit 0 (**0/60** cross-night collisions, guard 6 nights ≥ micro rotation 5 nights, 10/10 direction coverage both pools) · `check_pool_type_false_positives.py` exit 0 **with `--extensions`** · script exit 0.
+- **Rotation health**: long-form **10/10** direction coverage, no consecutive repeat (last 20 nights: 远居赡养→兄弟姐妹→随礼人情→养老院→再婚财产→房产纠纷→遗产分配→赡养义务→晚年孤独→亲戚恩怨→远居赡养→兄弟姐妹→随礼人情→养老院→再婚财产→房产纠纷). Tonight's two micro directions (退休金差 / 丧葬费) differ from each other ⇒ 0 same-night + 0 cross-night collisions. ⚠️ Tonight's pair is **identical to 11-18's** — that is the **5-night micro rotation** (10 topics ÷ 2/night), **not** a collision. Don't report a repeat rotation as a defect.
+- **SMTP**: still dead (day 91). Three-port sweep: 465 `SMTPServerDisconnected`, 587 STARTTLS `SMTPServerDisconnected`, 25 `Network is unreachable` ⇒ credential itself dead, not a port throttle.
+- **Credential**: unchanged dead code. `config.yaml` (`mail.smtp_pass`) and `~/.hermes/.env` (`QQ_EMAIL_AUTH_CODE`) hold the **same** string ⇒ **9 scripts** share it (toutiao / wechat / unified / daily_report / bithappy_email_pro / resend_toutiao_today / xhs-travel / xhs-escape-weekend / xiaohongshu-travel). One rotation restores all nine; then `scripts/resend_outbox_html.py toutiao --all` back-fills.
+- **Fixed this session**: README backfilled 6 nights (42 → 48 headings, verified); `content-platforms` patched with the `--extensions` false-positive rule; this skill patched with the size-hazard pitfall and the iteration-exhaustion false-error mode.
+- **NOT DONE (iteration cap)**: the `cron-job-debugging/SKILL.md` compaction itself (move the 26 long Pitfalls blocks into `references/`, target ≤ 75k chars). The pitfall is now recorded so the next session has the pointer, but **the file is still at ~97k chars and still at risk of the same `skill_manage` rejection.**
+
+### Refined decision rule at N≥91
+
+| Failure count | Probe? | Article inline? | Feishu attachment? | Content audit? | README? | Fix verification? |
+|---|---|---|---|---|---|---|
+| 1-9 | Yes | Yes | Yes | Yes | Yes | Yes |
+| 10-29 | Skip | NO | Yes + read-back | Yes | Yes | Yes |
+| 30-52 | Skip | NO | Yes + read-back | Yes | Yes | Yes |
+| 53-88 | Skip | NO | Yes + read-back | Yes | **Yes — mandatory** | Yes |
+| 89-90 | One confirmation | NO | Yes + read-back | Yes | **Yes — +N, not +1** | Yes |
+| **91 (today)** | One confirmation (3-port sweep) | NO | **Yes — read back** | **Yes — one FP corrected** | **Yes — +6, verified** | Yes |
 
 ## Case M — `last_status=ok` masks delivery failure (2026-09-14)
 Full case text: `references/case-m-last-status-masking.md`. Core lesson: when a cron script

@@ -109,6 +109,66 @@ tail -50 ~/.hermes/logs/agent.log | grep <job_name>
 grep "<job_id>" ~/.hermes/logs/errors.log
 ```
 
+### C）agent-mode 任务：**会话迭代预算耗尽**（2026-11-22 实测）—— 第三种误报
+
+这一类既不是 A（no_agent 误报）也不是 B（真失败），而是**报告会话自己
+没跑完**。内容早已生成并投递成功，但调度器把该夜记成了 `error`。
+
+**特征（三个一起看才成立）**：
+1. `jobs.json` 的 `last_error` **不是异常摘要，而是一段 markdown 报告正文**
+   —— 开头形如 `RuntimeError: ## 📰 头条号日报 · 2026-11-22（20:30）`。
+   正常的异常摘要会带 `Traceback` 或短错误串。
+2. `~/.hermes/logs/agent.log` 里能搜到：
+   `Turn ended: reason=max_iterations_reached(N/N)`。
+   N 通常等于本次运行实际生效的迭代上限（实测本部署为 **60**）。
+   ⚠️ 注意配置路径：`cron/scheduler.py` 读的是 `agent.max_turns` →
+   `max_turns` → 默认 90；`agent.max_iterations` 是**另一条**路径，
+   **以日志里实际的 N 为准**，不要凭配置猜。
+3. `~/.hermes/logs/errors.log` 里有
+   `ERROR cron.scheduler: Job '<name>' failed: RuntimeError: ## …`。
+
+**机理**（`cron/scheduler.py` → `run_job()`）：agent 返回
+`result["failed"] is True` 或 `result["completed"] is False` 时，
+调度器 **raise RuntimeError(报告正文)** —— 于是报告文本被当成异常消息
+写进了 `last_error`，`last_status` 被置为 `error`。**这不是投递失败。**
+
+**实测根因链（2026-11-22）**：
+`cron-job-debugging/SKILL.md` 已达 **96,668 字符**（`skill_manage` 上限
+100,000）⇒ 当晚要往 SKILL.md 追加案例时**连续 3 次被拒**
+（`SKILL.md content is 100,314 characters (limit: 100,000)`）⇒ agent
+在同一个失败调用上反复重试 ⇒ 迭代额度耗尽 ⇒ 报告没写完 ⇒ 调度器记
+`error`。**文章本身当晚已通过飞书附件送达**（`message.get` 回查
+`msg_type=file`、`deleted=False`、文件名匹配）。
+
+**⇒ 结论：`last_status: error` + 内容已送达 = 报告会话超预算，不是内容管线坏了。**
+处置：① **不要重跑生产脚本**（Case R：会产生第二份产物）② 补做该夜漏掉的
+持久化动作（README 追加等）③ **把 SKILL.md 压到安全水位**（≤ 75k 字符），
+否则每晚都会重演。
+
+**排查命令**：
+```bash
+# 1. 是不是迭代耗尽？
+grep "max_iterations_reached" ~/.hermes/logs/agent.log | tail -5
+
+# 2. last_error 是报告正文还是异常摘要？
+python3 -c "
+import json
+d = json.load(open('$HOME/.hermes/cron/jobs.json'))
+for j in d['jobs']:
+    e = j.get('last_error') or ''
+    if e:
+        kind = 'REPORT-BODY(会话超预算)' if e.lstrip().startswith('RuntimeError: #') else 'EXCEPTION'
+        print(j['name'], '|', j.get('last_status'), '|', kind, '|', e[:90].replace(chr(10),' '))
+"
+
+# 3. 本技能自己的体积（关键！）
+python3 -c "print(len(open('/home/ubuntu/.hermes/skills/cron-job-debugging/SKILL.md',encoding='utf-8').read()))"
+```
+
+**通用教训**：`skill_manage` 因体积拒绝写入时，**不要重试同一个写入** ——
+先把 SKILL.md 压缩，或把细节写进 `references/` 支持文件
+（`skill_manage(action='write_file', file_path='references/...')`）。
+
 ---
 
 ## 快速定位任务状态
