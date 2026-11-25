@@ -1,9 +1,9 @@
 {
-  "last_report_path": "/home/ubuntu/.hermes/logs/curator/20261118-002824",
-  "last_run_at": "2026-11-18T00:28:24.278239+00:00",
-  "last_run_duration_seconds": 113.675057,
-  "last_run_summary": "auto: no changes; llm: Clean. All three packages intact, no bytecode, all links verified.\n\n## Curator pass summary\n\n**Scope:** The candidate list contained only **3 agent-created skills**. The remaining ~100 skills in `~/.hermes/skills/` are bundled (`.bundled_ma…",
+  "last_report_path": "/home/ubuntu/.hermes/logs/curator/20261125-012235",
+  "last_run_at": "2026-11-25T01:22:35.372632+00:00",
+  "last_run_duration_seconds": 614.060598,
+  "last_run_summary": "auto: no changes; llm: Consolidation pass complete.\n\n## Summary\n\nThe candidate set was **3 agent-created skills** — unusually small for a consolidation pass, so the work was not \"split siblings into a new umbrella\" but **the harder and more valuable job: fixing t…",
   "last_run_summary_shown_at": null,
   "paused": false,
-  "run_count": 25
+  "run_count": 26
 }

@@ -1,7 +1,7 @@
 ---
 name: cron-job-debugging
 description: "Debug silently-failing Hermes cron jobs (no_agent script mode, scheduled prompt jobs, chained jobs). Diagnose 'Script not found', 'Blocked: script path resolves outside the scripts directory', silent no-op, exit-code-without-output, path-resolution failures, AND credential/SMTP delivery failures by reading scheduler output logs in ~/.hermes/cron/output/. Applies the script-path resolution rule (wrapper-file fix — absolute paths and symlinks are both rejected), the SMTP-credential deep-dive, and the local-fallback save pattern."
-version: 1.6.0
+version: 1.7.0
 author: Hermes Agent
 license: MIT
 platforms: [linux, macos]
@@ -309,59 +309,31 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
 ## Pitfalls
 
 - **🔴 2026-11-23: THIS skill file's own size is a live hazard — keep it under ~75k chars.**
-  On 2026-11-22 the reporting agent burned its entire iteration budget on
+  - On 2026-11-22 the reporting agent burned its entire iteration budget on
   `skill_manage` retries because `SKILL.md content is 100,314 characters
   (limit: 100,000)`. The session ended with `Turn ended:
   reason=max_iterations_reached(60/60)` — **the report was marked
   `last_status=error` even though the article had been generated and
   delivered successfully.** Root cause chain:
-  1. `skill_manage` refuses writes to a SKILL.md at/over 100,000 chars.
-  2. A near-limit skill (this one was **96,668 chars**) leaves no headroom, so
-     any append fails and the agent retries the same call repeatedly.
-  3. Each retry costs an iteration. The agent's final response is then never
-     finalized ⇒ the scheduler records `error` and puts the **report body**
-     into `last_error` (instead of an exception summary).
-  - **Symptom to recognize**: `jobs.json` shows `last_status: error` but
-    `last_error` starts with `RuntimeError: ## 📰 …` (a markdown heading)
-    rather than a traceback ⇒ **the agent session ran out of budget, not the
-    script**. Check `~/.hermes/logs/agent.log` for
-    `Turn ended: reason=max_iterations_reached`.
-  - **Prevention**: keep this SKILL.md **≤ 75k chars**. Measure with
-    `python3 -c "print(len(open('SKILL.md',encoding='utf-8').read()))"`.
-    The `## Pitfalls` section is the usual offender — long case narratives
-    (measured 2026-11-23: **62,010 chars = 64% of the whole file**).
-  - **The fix when it's over**: move the long narrative blocks into
-    `references/case-log-chronic-outage.md` (or a new `references/` file) and
-    leave a **one-line rule + a pointer** in SKILL.md. Keep the *actionable*
-    rule inline; move the *narrative* down. Don't delete history — the
-    reference files are the durable record.
-  - **Corollary for any skill, not just this one**: if a `skill_manage` write
-    is rejected for size, **do not retry the same write**. Shrink the target
-    file first, or write the detail to a `references/` support file instead
-    (`skill_manage(action='write_file', file_path='references/...')`).
-
+  1. `skill_manage` refuses writes to……
+  - 📄 完整案例叙事已下沉 → `references/pitfalls-compression-archive.md`（§2026-11-23-THIS-skill-file-s）
 - **Headers lie, bodies don't.** A log can show `Status: script failed` but
   also contain the exact reason — read the body, not just the header line.
-
 - **The script field is opaque.** The `cronjob` tool, `hermes cron list`, and
   the job-store JSON all show the script as you entered it. They do not tell
   you *how the scheduler will resolve it*. Always verify the resolved path
   yourself if a script-mode job is failing.
-
 - **Profile context matters.** A no_agent script runs with HERMES_HOME pinned
   to the active profile's home. If you reference `~/.hermes/...` from inside
   such a script, it goes to the *profile* home, not the root home. Use
   `${HERMES_HOME}` env var or absolute paths inside cron scripts.
-
 - **Scripts run with the scheduler's env, not your shell env.** Cron jobs do
   NOT inherit your interactive shell's PATH, alias, or sourced env vars. If
   a script depends on PATH, set PATH at the top of the script. If it needs
   `~/.ssh/jorge_server`, set the env var explicitly inside the script.
-
 - **`hermes cron list` shows paused jobs only with `--all`.** A job you
   paused last week won't show in plain `cron list` and you'll waste an hour
   chasing a non-issue.
-
 - **A `no_agent` script that exits 0 can still show `last_status: error`.**
   This is a platform reporting bug, not a script bug — the mirror image of the
   `last_status=ok` masking case below. Tell-tale signs: `last_status: error`
@@ -373,7 +345,6 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   `xhs-escape-weekend.py`, `wechat-article-daily.py`, `skill-backup.sh`,
   `agency-backup.sh`. Details in
   `references/no-agent-false-error-reporting.md`.
-
 - **`last_status: error` cannot distinguish "false report" from "partial
   success".** A `no_agent` script that produced its output but then failed
   delivery exits non-zero — so the scheduler's `error` is *accurate*, yet the
@@ -387,11 +358,9 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   script (a second run generates different content and creates a second
   backup). Three-way triage — false report / partial success / total failure —
   in `references/no-agent-false-error-reporting.md`.
-
 - **Multiple jobs can hit the same bug at once.** When one cron job's script
   path is wrong, check whether other jobs use the same path pattern — they
   almost certainly do. Fix all of them in one pass.
-
 - **🔴 2026-11-18: the "three fixes" for script-path resolution were two-thirds
   wrong.** Absolute path ⇒ tool rejects it; symlink ⇒ scheduler's `resolve()`
   guard blocks it AND it splits the script's state file into two. The
@@ -400,7 +369,6 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   predates the scheduler's path guard. Full transcript + the wrapper
   implementations:
   `references/script-not-found-case-study.md`.
-
 - **⚠️ A `no_agent` job that has NEVER succeeded looks like "the script is
   broken" but isn't.** Count the failures before investigating the script
   body: `ls ~/.hermes/cron/output/<job_id>/*.md | wc -l` vs
@@ -412,28 +380,20 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   the failure report scrolled past. **Check the failure COUNT early, and
   report the duration ("broken since <date>, N consecutive failures")** —
   the duration is what makes the user realize this is not new.
-
 - **🔴 `no_agent` jobs are the ones that fail silently** — an agent-mode job
   always produces *some* response, so a broken agent job is visible. A
   `no_agent` job whose script can't be found produces only a one-line
   scheduler log. **When a user says "the cron isn't running", enumerate ALL
   jobs and check each one's output log for `Status: script failed`** — one
   broken script path can disable four jobs simultaneously.
-
-- **⚠️ Fixing a `no_agent` job's path can UNCOVER duplicate scheduling.** A
-  job that never ran was harmless; once it runs, it may collide with classic
+- **⚠️ Fixing a `no_agent` job's path can UNCOVER duplicate scheduling.**
+  - job that never ran was harmless; once it runs, it may collide with classic
   crontab. Check `crontab -l` against `jobs.json` schedules for the same
   script BEFORE declaring victory. Two distinct failure modes to separate:
   - *agent-mode* + classic cron on the same script ⇒ usually fine (the agent
     audits rather than regenerates; check artifact counts to confirm).
-  - *no_agent* + classic cron on the same script ⇒ **real double-fire** — two
-    products, two emails, two pushes. On 2026-11-18 this applied to
-    `wechat-article-daily.py` (classic 22:00 vs Hermes 07:00) and
-    `skill-backup.sh` (classic 03:00 vs Hermes 03:00 — same minute).
-  **Back up the crontab before editing it** (`crontab -l > /tmp/crontab_backup_$(date +%Y%m%d_%H%M).txt`)
-  and ask the user which scheduler to keep rather than deleting unilaterally —
-  the classic cron entries also drive scripts with NO Hermes job.
-
+  - *no_agent* + classic cron on the same script……
+  - 📄 完整案例叙事已下沉 → `references/pitfalls-compression-archive.md`（§Fixing-a-no-agent-job-s-path）
 - **⚠️ Verify what a script ACTUALLY delivers before assuming it delivers.**
   `wechat-article-daily.py` has functions named `send_md_to_feishu()` and
   `send_md_via_hermes()` that contain **no send call at all** — they only
@@ -441,11 +401,9 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   (`smtplib`, `requests`, `subprocess`, `hermes send`) rather than trusting
   function names. A misleading name can make you report "pushed to Feishu"
   for something that only touched the local disk.
-
 - **`cronjob(action='run')` runs once on the next tick, not immediately.**
   If you need synchronous verification, execute the script directly via
   terminal and read the log a moment later.
-
 - **`Connection unexpectedly closed` is almost never a real network issue.**
   Python's `smtplib` reports the server's post-AUTH socket teardown as that
   generic error. The actual cause (535, rate limit, blocked port) is in the
@@ -454,7 +412,6 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   per step — see Case I) and re-read the `reply:` lines before assuming
   connectivity is the problem.
   See the "SMTP / credential failure deep-dive" section for the full recipe.
-
 - **`debuglevel=2` is NOT a "more verbose" upgrade — it can still bury the
   535.** Both `debuglevel=1` and `debuglevel=2` rely on Python's smtplib to
   walk through the AUTH negotiation, and Python retries with AUTH LOGIN after
@@ -464,27 +421,13 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   server.getreply()` per step pattern from Case I. Verified 2026-09-09
   (failure #15): `debuglevel=2` + `SMTP_SSL(...)` reproduces the exact same
   buries-the-535 behavior as `debuglevel=1`. Don't trust debuglevel alone.
-
 - **Before any SMTP work, check the outbox age to detect a same-outage repeat.**
-    `ls -1 ~/.hermes/cron/outbox/<platform>/*.html 2>/dev/null | wc -l` is the fastest "is this the same SMTP outage I've already diagnosed?" check.
+  - `ls -1 ~/.hermes/cron/outbox/<platform>/*.html 2>/dev/null | wc -l` is the fastest "is this the same SMTP outage I've already diagnosed?" check.
     If the count is ≥3 AND the platform's `outbox/<platform>/README.md` has no
     "Outage resolved" entry, you are looking at a known chronic failure —
     skip Steps 1-5 of the diagnostic loop and jump to the Case H terse-report
-    pattern (outbox path + one-line fix). Saves the user from another 30s of
-    SMTP probe output for a problem they've been ignoring for ≥3 nights.
-    Pair with the **time-to-failure fingerprint**: a revoked QQ SMTP auth
-    code returns 535 in ~0.6-0.8 seconds (measured 2026-09-09: 0.62s wall
-    clock from `SMTP_SSL()` open to the `SMTPServerDisconnected`). If your
-    probe completes in under 1s and prints `Connection unexpectedly closed`,
-    it's a credential problem, not a network one — skip the port-587 retry
-    and go straight to the user-fix instructions. At N≥20 the probe is purely
-    ceremonial; one line of AUTH LOGIN output (the `password -> 535:` line)
-    is the entire diagnostic value, the rest is noise.
-    The full 8-step diagnostic sequence for a *fresh* agent on a chronic outage
-    (outbox count → README → probe → port sweep → DNS → terse report → README
-    extension) lives in `references/case-log-chronic-outage.md` Case J — read it
-    there, not here.
-
+    pattern (outbox path + one-line fix). Sa……
+  - 📄 完整案例叙事已下沉 → `references/pitfalls-compression-archive.md`（§Before-any-SMTP-work-check-t）
 - **The "From header invalid" error mode (2026-08-23) was fixed and has
   not recurred.** If you see `550 ... "From" header is missing or invalid.
   Please follow RFC5322...` (vs `Connection unexpectedly closed`), check
@@ -492,7 +435,6 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   'utf-8')), SMTP_USER))` — that pattern is the stable fix. The
   `Connection unexpectedly closed` family of errors is a separate
   credential problem; don't conflate them.
-
 - **Cron scripts do not inherit your interactive env vars.** A script that
   reads `os.environ['QQ_EMAIL_AUTH_CODE']` will get an empty string in cron
   context, and your "I tested it manually and it worked" recollection is
@@ -500,22 +442,18 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   into `~/.hermes/cron/config/config.yaml`, or `export` it at the top of the
   script. See `references/smtp-credential-failure-case-study.md` for a
   worked case study.
-
 - **Once `probe_smtp.py` confirms a known auth-revocation pattern, stop re-running the script.** The credential is binary (valid or revoked), not probabilistic — re-running the full content-generation + SMTP-failure cycle produces zero new information, just more identical `❌ 发送失败: Connection unexpectedly closed` output that consumes cron-output bandwidth. After the first confirm, switch immediately to user-report mode (point at the outbox backup, give the fix command). See Case E in `references/smtp-credential-failure-case-study.md`.
-
 - **A failed email cron loses today's content unless you save it locally.**
   The script's `try/except` around `sendmail` swallows the error and exits
   cleanly — the article is gone. Always save the rendered HTML/text to
   `~/.hermes/cron/output/<script>_<timestamp>.{html,txt}` BEFORE attempting
   delivery, so a credential outage doesn't also nuke the work product.
   See "Step 4 — Save locally as a fallback" in the SMTP deep-dive.
-
 - **Provider-specific error codes are not interchangeable.** QQ's `535` is
   a generic auth/account-abnormal message; Gmail is more specific; Outlook
   /Office365 adds a `5.7.606` error code you'll need to look up. Don't try
   to pattern-match across providers — read the full error string the first
   time.
-
 - **Save AFTER failure, not only BEFORE send.** The Step 4 pattern (write
   HTML to disk before calling send_email) covers the "script crashes mid-
   delivery" case, but the common SMTP failure is the script completing
@@ -526,9 +464,9 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   `~/.hermes/cron/outbox/<platform>/` on final failure with the absolute
   path embedded in the error message. See step 6 of the SMTP deep-dive for
   the working template from `toutiao-article-daily.py`.
-
-- **Three outbox-resident artifact types, three purposes (Case V, 2026-10-12).** Chronic-outage crons should maintain three sibling artifacts under `outbox/<platform>/`: (1) the rendered `YYYYMMDD_HHMM_<direction>.html` (full content), (2) the `PENDING_<date>.html` symlink to one canonical content file, (3) a `STANDBY_<date>.txt` plain-text dispatch metadata file (title / direction / HTML path / ≤200-char reason). The STANDBY file is for crons whose primary delivery channel is broken AND whose report rides a secondary channel (e.g. Feishu / Lark / Slack) that doesn't render file paths — that secondary consumer can quote the STANDBY as a low-bandwidth pickup notification. Worked implementation lives in `toutiao-article-daily.py::main()` (block added 2026-10-12 — preserve it on future edits). Don't move the STANDBY write out of the `if not success:` branch, and don't store STANDBY files in `~/.hermes/cron/output/<job_id>/` (that's scheduler log territory, see §5/Case C). Full lessons + porting guide in `references/toutiao-cron-outage-2026-09.md` Case V.
-
+- **Three outbox-resident artifact types, three purposes (Case V, 2026-10-12).**
+  - 
+  - 📄 完整案例叙事已下沉 → `references/pitfalls-compression-archive.md`（§Three-outbox-resident-artifa）
 - **The failure report must NOT depend on the broken channel.** When the
   cron is failing because of email, the failure report cannot be an email.
   Always check the cron's `deliver` config: if it's `deliver: origin` to
@@ -539,7 +477,6 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   so the user finds it when they next inspect the outbox. See Case F in
   `references/smtp-credential-failure-case-study.md` for the canonical
   report template.
-
 - **Escalate to explicit user-facing fix instructions after the 3rd
   consecutive identical failure.** The first 1–2 occurrences: confirm with
   `probe_smtp.py`, save the outbox backup, and report minimally. From the
@@ -549,7 +486,6 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   cumulative failure count. By day 5+, the report should read like a
   runbook entry, not a passive error message — the user has likely been
   ignoring the first two.
-
 - **At 10+ consecutive identical failures, stop running `probe_smtp.py`.**
   The credential state hasn't changed in a week; running the probe again
   consumes tokens to confirm what `~/.hermes/cron/outbox/<platform>/README.md`
@@ -557,7 +493,6 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   one-line fix. The user knows — they just haven't done it. Treat it like
   a runbook dispatch, not an investigation. See Case H for the canonical
   terse report template.
-
 - **⚠️ The README extension is independent of the failure report — and it is the
   step agents skip at high N.** At failure count ≥30 the terse dispatch report
   already "feels complete", so agents skip the `## YYYY-MM-DD（持续中 — 第N天）`
@@ -567,60 +502,14 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   `grep -c "^## " ~/.hermes/cron/outbox/<platform>/README.md` — the count must
   increase by 1 per session. See the Escalation policy below and Case W in
   `references/case-log-chronic-outage.md`.
-
 - **🔴 Do the README append EARLY, not last (2026-11-05, a session got cut off).**
-  A cron session hit its tool-call limit *after* the content fixes and verification
+  - A cron session hit its tool-call limit *after* the content fixes and verification
   but *before* the README append and the outbox prune — the two terminal actions.
   The fixes landed in the source (good), but the cross-session outage log skipped
   a night, so the next session's "第N天" counter was wrong and the README had no
   record of the linter repair.
-  **Rule: for a chronic-outage cron, append the README entry and prune the outbox
-  EARLY in the session** (right after confirming delivery), not as cleanup at the end.
-  The audit/fix work is the part that can be cut off; the persistence step must not be.
-  If you suspect you're near a limit, write the README entry first and treat any
-  remaining analysis as a bonus.
-  Also note the README heading count is the verification: `grep -c "^## "` must go up
-  by exactly 1 per session — if it didn't, the entry was never written.
-  - **🔴 2026-11-16 实测：「读-改-写」追加 README 会截断日志 —— `read_file` 默认只读前 500 行且静默截断，`write_file` 全量覆盖 ⇒ 一次追加就把 14 段历史日志删掉了。**
-    当晚要用 `read_file` + `write_file` 给 `outbox/toutiao/README.md` 追加第 84 天那一段，
-    结果 README 从 **822 行被截断到 513 行**（11-02～11-15 共 14 段消失）——
-    `read_file` 的 `limit` 默认 500 行且**超限不报错**，`write_file` 又整体覆盖。
-    - **规则：只增不减的日志文件（outbox README / `topic_history.json` / `jobs.json`）只追加，绝不读改写。**
-      用 `cat >> file <<'EOF'` 或 `Path(p).open('a')`。若非要用 `read_file`，
-      必须显式给足 `limit` 并**比较 `r['total_lines']`**——不比较就会静默截断。
-    - **✅ 恢复方法（本次实际有效）：`~/.hermes/state.db` 的 `messages.tool_calls` 字段保存了每次工具调用的完整入参。**
-      每一晚的 README 追加都是当晚 agent 的一次 `write_file`/`execute_code` 调用，
-      原文就在 `tool_calls` 里 ⇒ 逐段还原、重建、去重后，
-      README 恢复为 **41 个标题、第69→84天连续无缺口、乱码 0**。
-      取值方式：`json.loads(tc)[0]['function']['arguments']` →
-      `write_file` 取 `['content']`、`execute_code` 取 `['code']`（entry 藏在其三引号块里）。
-      ⚠️ 还原时要按「`\n- ` 行数 × 长度」选最完整的一份，并过滤掉工具输出片段。
-    - **预防清单**：追加后必须 ① `grep -c "^## "` 比对追加前（须 **+1**）② `grep -n "^## " | tail -3` 看最后三个标题是否连续 ③ 乱码扫描为 0。
-    - 完整事故记录、还原代码、三个坑（JSON 转义层 / 取值方式 / 同夜多候选）→ `references/readme-append-truncation-disaster.md`
-  - **⚠️ 2026-11-08 复现：这是第二次因会话被截断而漏记 —— 而且漏的不止一夜。**
-    11-07 会话被工具调用上限截断，没能追加 README；11-08 会话开头发现
-    README 最后一条是 11-06（**第74天**），而 11-07（第75天）**整夜缺失**。
-    处理方式：按上面「backfill EVERY gap night」补记 11-07，并追加 11-08。
-    **标题数 31 → 33**（= 1 + 1 个补记夜），已用 `grep -c "^## "` 核验。
-    - **实操顺序（2026-11-08 会话验证有效）**：
-      ① 先确认当晚产物与送达（读 outbox + `_verify_feishu_msg.py` 回查 `message_id`）
-      → ② **立刻**补记 README（回填所有缺口夜 + 追加今晚）
-      → ③ 再做内容审计与修复 → ④ 最后清理 outbox。
-      把 README 放在修复之前，是因为修复最容易耗尽工具调用额度。
-    - **⚠️ 补记时的取数纪律**：事实**必须从产物取**，不能凭记忆 ——
-      标题/方向从 `outbox/<platform>/YYYYMMDD_HHMM_<direction>.html` 的 banner 取，
-      失败原因从对应的 `STANDBY_YYYYMMDD.txt` 取，
-      飞书 `message_id` 从 scheduler 输出日志（`~/.hermes/cron/output/<job_id>/*.md`）
-      或 `STANDBY` 文件里抠 —— **不要重跑脚本去「重新拿一个 ID」**（会产生第二份产物）。
-      本次补记 11-07 时，`message_id=om_x100b61c5d22b40a8c1ea4391e128090`
-      就是从 11-07 的 `STANDBY_20261107.txt` 取的，再用 `_verify_feishu_msg.py` 回查确认
-      `file_name=20261107_2030_亲戚恩怨.html` —— **补记不等于抄旧结论，要重新回查**。
-    - **⚠️ 用 `execute_code` 读写 README 时注意行号前缀**：本会话用
-      `read_file()` 读回来的是 `行号|内容` 格式，直接拼接会把行号写进文件。
-      **必须先剥掉 `^\d+\|` 前缀再落盘**，写完再 `grep -c "^## "` 核验标题数。
-      另注：写入长中文段落要检查有没有产生**乱码字符**（本次有一处 `五六���`
-      被写进文件，靠 `grep` 发现后补修）—— 落盘后扫一遍非正常字符。
-
+  **Rule: for a chronic-outage cron, append the README entry and……
+  - 📄 完整案例叙事已下沉 → `references/pitfalls-compression-archive.md`（§Do-the-README-append-EARLY-n）
 - **⚠️ Case K ("IP-level AUTH block") is NOT reproducible on this deployment — never cite
   it without a fresh raw-socket control test.** Originally "discovered" 2026-09-11 (failure
   #17) from `server.login(good_pass)` and `server.login(wrong_pass)` both returning
@@ -639,37 +528,21 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   alone. Drive the session yourself — `socket.create_connection()` + `ssl.wrap_socket()`,
   then send `AUTH LOGIN`, base64 username, base64 password, printing every server line. If a
   `535` appears, the credential is dead; the fix is regenerating the auth code, full stop.
-  Also keep `references/smtp-credential-failure-case-study.md` in sync with this correction.
-
+  Full transcript + the raw-socket recipe: `references/smtp-credential-failure-case-study.md`.
 - **⚠️ A backfilled outage log must cover EVERY missed night, not just tonight (2026-11-06).**
-  The "append README early" rule fires per *session*, but sessions can be cut off before
+  - The "append README early" rule fires per *session*, but sessions can be cut off before
   they append — so the log develops **holes**, not just a missing tail. On 2026-11-06 the
   README's last entry was 11-03 (day 71) even though 11-04 and 11-05 had both run and
   been delivered; the 11-04 session was truncated mid-work and the 11-05 session ran out
   of tool-call budget before its append.
-  - **Fix on the next session: backfill EVERY gap night**, not only the current one. Each
-    backfilled entry needs the same fields as a live one: symptom, cron trigger count,
-    generated article + direction, HTML backup path + size, PENDING/STANDBY presence,
-    Feishu `message_id` (readable from the scheduler output log at
-    `~/.hermes/cron/output/<job_id>/*.md` — **don't re-run the script to get one**, that
-    makes a second artifact), and what was fixed.
-  - **Source the facts from the artifacts, not from memory**: `outbox/<platform>/YYYYMMDD_HHMM_<direction>.html`
-    for title/direction, the `STANDBY_YYYYMMDD.txt` file for the failure reason, and the
-    scheduler output log for the `message_id`.
-  - **Verify the backfill with the heading count**, not by eyeballing:
-    `grep -n '^## ' outbox/<platform>/README.md` — the count of `## YYYY-MM-DD` headings
-    must increase by the number of nights backfilled (not by 1).
-  - **Corollary:** the "count must increase by exactly 1 per session" check is for a
-    *single-night* session. When you discover holes, the expected delta is
-    *1 + (number of missing nights)*.
-
+  - **Fix on the next sessi……
+  - 📄 完整案例叙事已下沉 → `references/pitfalls-compression-archive.md`（§A-backfilled-outage-log-must）
 - **`crontab.txt` and Hermes `jobs.json` are independent schedulers.** Some
   deployments run the same script under both classic cron (`crontab -l` →
   `~/.hermes/cron/crontab.txt`) AND the Hermes cron scheduler (`jobs.json`).
   When debugging a "silent" cron, check both — `jobs.json` may show the job
   exists but not actually be the one firing, or vice versa. The log dir
   `~/.hermes/cron/output/<job_id>/` only exists for Hermes-scheduler runs.
-
 - **`crontab.txt` is invisible to the Hermes health view.** Classic cron
   fires the script, the script writes to `toutiao-article-daily.log` (the
   redirect target), and `jobs.json` is never touched. So `jobs.json`'s
@@ -682,7 +555,6 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   (Hermes-side timestamp). If outbox is newer than Hermes's last run, classic
   cron fired in between. This is the only way to detect double-fires when
   the same script is registered under both.
-
 - **`outbox/<platform>/README.md` is the durable outage log; extend it
   on every failed night, don't rewrite.** When a cron has been failing
   for ≥3 consecutive nights, append a `## YYYY-MM-DD（持续中 — 第N天）`
@@ -691,118 +563,49 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   the full outage history without burning tokens re-diagnosing. See
   `references/outage-readme-template.md` for the full template and
   "what goes in vs out" rules.
-
 - **⚠️ 飞书 `message.get` 回查在本 SDK 版本有三处 API 差异（2026-11-03 实测）**：想确认备用通道「真的送达」而不是「脚本说送达」，必须回查消息。踩到的三个坑：**① `message.get` 是同步方法**（`await` 会报 `TypeError: object GetMessageResponse can't be used in 'await' expression`）；**② `success`/`code`/`msg` 是属性不是方法**（`resp.success()` 会报 `'int' object is not callable`）；**③ `data.items` 是 `Message` 对象不是 dict**（`it.get('msg_type')` 会报 `'Message' object has no attribute 'get'`）。`body.content` 里能看到 `{"file_key": "...", "file_name": "20261103_2030_房产纠纷.html"}` —— 用 `file_name` 核对「送达的是不是今夜那份」，比只看 `msg_type=file` 更可靠。
   - **已固化为 `~/.hermes/cron/scripts/_verify_feishu_msg.py`**（venv python 执行，`python3 _verify_feishu_msg.py <message_id>`）—— 以后每晚可直接回查，不用每次重写这段踩坑代码。
   - **注意 `create_time` 是毫秒时间戳**（如 `1793709006972`），不是秒。
 - **⚠️ 飞书备用通道的 `message_id` 只出现在脚本自己的日志/错误串里**：`send_email()` 的失败返回串是 `[QQ SMTP 限频 / 飞书附件投递成功 (message_id=om_...)] Connection unexpectedly closed`。要回查就把这串 ID 抠出来 —— 别重跑脚本去"重新拿一个 ID"，那会生成第二份产物（Case R）。
-
 - **⚠️ A dead mail channel is not a dead content channel (2026-10-25, failure #62).**
-  When the email/SMTP channel has been down for weeks but the cron also has a healthy
+  - When the email/SMTP channel has been down for weeks but the cron also has a healthy
   chat-platform `deliver` route, **push the content as a native file attachment on that
   route** instead of only writing a report that says "email failed". Working recipe:
   `tools.send_message_tool._send_to_platform(Platform.FEISHU, pconfig, chat_id, caption,
   thread_id=None, media_files=[(abs_html_path, False)])` → returns
-  `{'success': True, 'message_id': 'om_...'}`. Verify by reading the message back
-  (`lark.im.v1.GetMessageRequest` → confirm `msg_type == 'file'`, `deleted == False`).
-  Caveats: `.html` is NOT in the `MEDIA:` regex whitelist but IS in `extract_local_files`'s
-  `_LOCAL_MEDIA_EXTS`, and Feishu `file_type=stream` accepts arbitrary files; the SDK class
-  is `lark.im.v1.GetMessageRequest` (top-level, not `lark.im.v1.message.*`); delete any
-  superseded duplicate message so the user doesn't get two files. Be explicit in the report
-  that this is a **channel substitution, not a mailbox fix** — the QQ auth code still needs
-  regenerating if `569545015@qq.com` is the destination that matters.
-  See `references/toutiao-cron-outage-2026-10-week4.md` Case Y.
-
+  `{'su……
+  - 📄 完整案例叙事已下沉 → `references/pitfalls-compression-archive.md`（§A-dead-mail-channel-is-not-a）
 - **⚠️ A dedup helper whose read key ≠ write key fails SILENTLY and forever (2026-10-27).**
-  A content-generator can look like it has working cross-day topic rotation while
+  - A content-generator can look like it has working cross-day topic rotation while
   never actually deduplicating. The failure mode: `_record_topic()` appends
   `{'key': ..., 'title': ..., 'date': ...}` but `_pick_topic()` reads
   `h.get('direction')` → every lookup returns `None` → `recent` becomes
   `['None','None',...]` → the "not recently used" candidate set is always the
-  FULL pool → `random.choice(fresh)` degenerates to uniform random over the pool.
-  No exception, no warning, no visible symptom other than repeated titles.
-  **Detection recipe:** compare the key the writer emits against the key the
-  reader looks up, then assert the candidate set is actually smaller than the pool:
-  ```python
-  recent = [mod._hist_key(h) for h in hist[-mod.MAX_RECENT:]]
-  fresh = [t for t in POOL if t['direction'] not in recent]
-  assert len(fresh) < len(POOL), "dedup is a no-op!"
-  ```
-  **Rule: whenever you add cross-day rotation, write an assertion that the
-  candidate set SHRINKS, and simulate N future days before shipping.**
-  A 12-day simulation should show 0 consecutive repeats and even distribution
-  across the pool. "It generates different things" is not evidence of dedup.
-
+  FULL pool → `random.choice(fresh)` degener……
+  - 📄 完整案例叙事已下沉 → `references/pitfalls-compression-archive.md`（§A-dedup-helper-whose-read-ke）
 - **⚠️ A brand-new history file starts EMPTY → dedup silently does nothing until backfilled (2026-10-27).**
-  When you introduce a rotation feature and seed its history file with *only
+  - When you introduce a rotation feature and seed its history file with *only
   today's picks*, the dedup window has no prior data to compare against, so the
   feature is a no-op on day 1 and stays a no-op until the window fills (~5 days).
   Real damage measured here: micro-topic history created 10-26 with only 2
   entries → near-8-day observed distribution was 婆媳关系 ×15, 老年婚姻 ×12,
-  养老金 ×11 — the same micro-post went out many nights running.
-  **Fix:** backfill the history file from ground truth before shipping —
-  for this deployment the source of truth was parsing `方向：X` out of the
-  accumulated outbox HTML (`outbox/<platform>/YYYYMMDD_HHMM_<direction>.html`),
-  which yielded 50 micro-topic records for 10-11 → 10-27.
-  **Rule: a new rotation feature ships with (a) a backfill of historical picks
-  and (b) a multi-day simulation showing 0 consecutive repeats.** Verify the
-  *frequency distribution*, not just the presence of the feature.
-
+  养老金 ×11 — the same micro-post went ou……
+  - 📄 完整案例叙事已下沉 → `references/pitfalls-compression-archive.md`（§A-brand-new-history-file-sta）
 - **⚠️ A sliding window sized in *records* is the wrong unit for multi-per-day feeds (2026-10-28).**
-  The 10-27 fix above made `MAX_RECENT` a **record count** (`history[-MAX_RECENT:]`).
-  That is correct for a 1-record-per-day feed, but the micro feed emits **2 records
-  per day** — so a 9-record window covers only 4.5 days, and while the window is still
-  filling, the "not recently used" candidate set is 7-8 items wide. `random.choice`
-  over that set hits a repeat with real probability. Measured 30-day simulation:
-  **6 consecutive repeats, only 6/10 directions ever used**, worst offender at 22%
-  of all micro posts.
-  **Fix: use LRU (least-recently-used), not windowed-random.** Rank candidates by
-  the index of their last appearance in the history and take the oldest — no random
-  collision, the pool cycles cleanly, and the distribution is perfectly even.
-  ```python
-  def _pick_lru(pool, history_path, key='direction', exclude=()):
-      history = _load_history(history_path)
-      last_seen = {}
-      for i, h in enumerate(history):
-          k = _hist_key(h)
-          if k:
-              last_seen[k] = i          # bigger index = more recent
-      exclude = set(exclude or ())
-      avail = [t for t in pool if str(t.get(key)) not in exclude] or list(pool)
-      def _rank(t):
-          return last_seen.get(str(t.get(key)), -1)   # never seen = -1 = oldest
-      oldest = min(_rank(t) for t in avail)
-      ties = [t for t in avail if _rank(t) == oldest]
-      return random.choice(ties)
-  ```
-  Result: 0 consecutive repeats, 10/10 directions covered, distribution exactly even
-  (3× each for 30 long-form picks; 6× each for 60 micro picks).
-  **Two corollaries:**
-  - **The window must also track pool size.** A hardcoded `MAX_RECENT = 5` against a
-    10-item pool means the expanded pool is only half used — expanding the pool
-    without widening the window is a no-op.
-  - **Same-day exclusions must key on `direction`, not list index** — two micro posts
-    on one night must never share a direction.
-  Full write-up + the 30-day simulation harness:
-  `productivity/content-platforms/references/topic-pool-rotation-and-length-engineering.md`.
-
+  - A window expressed as a **record count** is correct for a 1-record-per-day feed, but a
+  multi-per-day feed emits several records per day — so a 9-record window covers only half
+  the intended days, and while the window is still filling, the "not recently used"
+  candidate set stays wide and `random.choice` over it hits repeats with real probability.
+  Measured on the micro feed (2 records/day, 9-record window): 6 co……
+  - 📄 完整案例叙事已下沉 → `references/pitfalls-compression-archive.md`（§A-sliding-window-sized-in-re）
 - **⚠️ Rotation simulation MUST use a temp history file, or it corrupts production and lies to you (2026-10-28).**
-  Pointing the picker at the real `topic_history.json` while simulating rewrites
+  - Pointing the picker at the real `topic_history.json` while simulating rewrites
   production state on every iteration and yields a wrong distribution. One run here
   reported "micro covers only 4/10 directions" — an artifact of the simulator reading
   and appending the live file, not a real defect.
   **Recipe:** redirect the module's history globals to `tempfile` paths, and make the
-  picker accept an injected path so it is testable at all:
-  ```python
-  tmp = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False, encoding='utf-8')
-  tmp.write('[]'); tmp.close()
-  T.HISTORY_FILE = tmp.name
-  # ... simulate N days ...
-  os.unlink(tmp.name)
-  ```
-  Then **diff the real files** to prove nothing leaked:
-  `diff <(cat /tmp/bk_topic.json) outbox/<platform>/topic_history.json`.
-
+  picker accept an injected path so……
+  - 📄 完整案例叙事已下沉 → `references/pitfalls-compression-archive.md`（§Rotation-simulation-MUST-use）
 - **⚠️ `str.format(**kwargs)` silently DROPS kwargs the template doesn't reference (2026-10-25).**
   `generate_article()` passed `story_a_dialogue` / `story_a_ending` / `story_b_ending` into
   `HTML_TEMPLATE.format(...)`, but the template had **no placeholders for them** — so they were
@@ -813,7 +616,6 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   key content fields** — "renders without error" does NOT prove the output is complete.
   Verify the product, not the process. Same class of bug applies to any
   `dict`-driven template (`jinja2` silently renders empty for undefined vars too).
-
 - **One revoked credential fails N scripts, not one.** When a content-platform
   cron (e.g. `toutiao-article-daily.py`) hits `SMTPServerDisconnected`, grep
   the whole `~/.hermes/cron/scripts/` directory for `smtp_pass` /
@@ -824,7 +626,6 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   drops content from 3 content-platform scripts, not just the one in the
   log title). Don't fix one and report — fix the credential once and tell
   the user how many crons recover.
-
 - **Match the report length to the delivery channel.** Case H's 4-line terse
   dispatch is right when the cron delivers via the same broken channel
   (e.g. `deliver: email` and email is what's broken — long reports burn the
@@ -834,7 +635,6 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   hybrid — headline + cross-script blast radius + generated-content
   summary, NO SMTP transcript — communicates more without wasting tokens.
   See `references/toutiao-cron-outage-2026-08.md` "Hybrid report shape".
-
 - **Use a dedicated `outbox/` tree, not the scheduler's `output/` tree.**
   `~/.hermes/cron/output/<job_id>/` is the scheduler's own log directory;
   dropping backup artifacts there blurs "script ran" records with
@@ -843,21 +643,18 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   with one subdir per delivery platform (`toutiao/`, `wechat/`,
   `unified/`, `email/`) and a `README.md` in each explaining the most
   recent outage + the user-facing fix (regenerate QQ auth code, etc.).
-
 - **Two-source-of-truth can both be stale.** When `config.yaml`'s `smtp_pass`
   and `~/.hermes/.env`'s `QQ_EMAIL_AUTH_CODE` were copied from the same QQ
   authorization code at setup time, a single revocation leaves BOTH dead.
   Just updating one won't help. Diff both against the live QQ web UI value
   before deciding the YAML is the canonical source. Pattern: `diff <(echo "$QQ_EMAIL_AUTH_CODE") <(grep smtp_pass ~/.hermes/cron/config/config.yaml | awk '{print $2}' | tr -d '"')` — if they match, you only have one
   credential to regenerate, not two.
-
 - **QQ silent-reject has no `535` reply in the transcript.** Unlike the
   documented case study, a QQ anti-spam that aggressively revokes an auth
   code may close the TLS socket right after `AUTH` with no `reply:` line at
   all — `debuglevel=1` shows a clean EHLO then a bare `SMTPServerDisconnected`.
   Don't conclude "network problem" just because the 535 is missing.
   See the "Rarer edge case — QQ silent-reject (Case B)" callout in §5.
-
 - **Manual AUTH LOGIN + `getreply()` is more reliable than `debuglevel=1`.**
   For QQ specifically, the default revocation signature (Case A) is a visible
   `535 Login fail. Account is abnormal...` line — but `debuglevel=1` can
@@ -868,240 +665,73 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   Prefer the manual recipe for terminal-typed probes, or when you suspect
   smtplib's AUTH retry is hiding the actual error. See Case I for the full
   transcript.
-
 - **⚠️ `last_status=ok` does NOT mean the report was delivered (Case Y, 2026-10-24).**
-  The scheduler records `ok` because the *job* ran and produced a response; the
+  - The scheduler records `ok` because the *job* ran and produced a response; the
   *delivery* step is separate and its failure only surfaces in `last_delivery_error`.
   This deployment had BOTH channels broken at once: QQ SMTP dead 61 nights AND the
   Feishu `deliver: origin` route broken by a stale `omt_` thread_id (`99992402 field
-  validation failed`, root cause `99992354 invalid open_message_id` — `omt_` is a thread
-  id, not a valid `receive_id` for `receive_id_type=thread_id`).
-  **Operational rule: when investigating "I didn't get the cron message", read
-  `last_delivery_error` FIRST, before diagnosing the job body.** And when running as a
-  cron whose report rides a channel, check that channel's health — a broken delivery
-  route makes the failure report invisible, so the user sees silence instead of an
-  error. Fix: `hermes cron edit <job_id> --deliver "feishu:<chat_id>"` (omit the thread
-  id). Full diagnosis + 3-step verification in `references/feishu-stale-thread-id-delivery-failure.md`.
-
+  validation failed`, root cause `99992354 invalid open_message_id` — `omt_` is a thread……
+  - 📄 完整案例叙事已下沉 → `references/pitfalls-compression-archive.md`（§last-status-ok-does-NOT-mean）
 - **⚠️ A *content* cron has a second, quieter failure mode: the pipeline works but the product is bad (2026-10-28).**
-  Every symptom in this file is a *delivery* failure — SMTP 535, dead channel, false
+  - Every symptom in this file is a *delivery* failure — SMTP 535, dead channel, false
   `last_status`. But a content cron can also fail **while every green light stays on**:
   the script exits 0, the Feishu attachment lands, the user receives a file — and that
   file is the same headline they received last cycle, or 400 characters short of the
-  script's own checklist target. Nothing errors. Nothing looks wrong. The user just
-  quietly stops reading.
-  **Diagnosis order for a content cron — check the PRODUCT first, then the channel:**
-  1. Read the latest outbox HTML back and **measure** it (Chinese-char count, story
-     sections present, topic direction).
-  2. Compare against the *script's own* `CHECKLIST_ITEMS` — the checklist is a contract,
-     not decoration. (Measured here: the script's own "1500字以上" target had **zero**
-     articles meeting it — 813-1159 chars against a 1500 target.)
-  3. Audit topic-direction frequency across recent outbox files:
-     `ls -1 outbox/<platform>/*.html | sed 's/.*_//' | sort | uniq -c`.
-  4. Only then diagnose delivery.
-  **Rule: a cron that ships the same artifact to the same audience every N days is
-  failing, even when the delivery channel is 100% green.** Fix the pool/rotation, not
-  the channel. Full recipes (pool sizing, LRU rotation, length assertions, the
-  `str.format()` silent-drop check) in
-  `productivity/content-platforms/references/topic-pool-rotation-and-length-engineering.md`.
-
+  script's own checklist target. Nothing errors. Nothing looks wrong. The use……
+  - 📄 完整案例叙事已下沉 → `references/pitfalls-compression-archive.md`（§A-content-cron-has-a-second-）
 - **🔴 The audit tool can be DEAD and the session still reports "all green" (2026-11-05, 2 nights lost).**
-  The content linter (`lint_content_consistency.py`) crashed on **every** run for two
+  - The content linter (`lint_content_consistency.py`) crashed on **every** run for two
   consecutive nights — `NameError: check_orphan_character` (the `_self_test()` called a
   function that was never defined) — **and the ORPHAN rule it was supposed to enforce
   was never wired into `lint()` at all**. Both nights were recorded as "linter green,
   content clean". They were not: the linter never reached the check.
-  **Root cause of the concealment: the exit code was swallowed by a pipe.**
-  `python3 linter.py ... | tail -30; echo "EXIT=$?"` reports **tail's** exit code (0),
-  not the linter's. The linter actually exited 1 with **empty stdout** and a one-line
-  traceback on stderr.
-  **Rules:**
-  - **Never run an audit tool through a pipe when you care about its exit code.**
-    ```bash
-    python3 linter.py --pool ... --extensions ... > /tmp/lo.txt 2>/tmp/le.txt
-    echo "REAL EXIT=$?"; cat /tmp/lo.txt; echo "--stderr--"; cat /tmp/le.txt
-    ```
-  - **Triage by output shape, not by the exit code alone:** *stdout empty + stderr has a
-    traceback* = **the tool is broken**, not "the content has problems". These demand
-    opposite responses (fix the tool vs. fix the prose) and mixing them up wastes a
-    night.
-  - **A tool that self-checks must exit 2 on self-check failure** — never let an
-    exception drag it down to 1, which means "content has problems".
-  - **"I wrote the function" ≠ "the rule works."** Prove a new rule fires by feeding it
-    a real counter-example (a temp pool + temp extensions file) and asserting exit 1
-    plus the expected check code. Running it against clean content only proves the
-    empty-set case, which is exit 0 regardless of whether the rule is wired up.
-  - **🔴 2026-11-07 新增第三步：「跨池型不误报」。** 前两步（正例不报 + 反例必报）**都不够** ——
-    `HOOK_PROMISE` 规则落地时两步都过了，却立刻产生 **14 处假阳性**（15 处命中里只有 1 处是真缺陷）。
-    根因：规则自己的装配函数只认 `story_a`/`story_b` 系列字段，而**微头条池的正文在 `content`** ——
-    微头条的「正文」被装配成空串，于是钩子/标题里的每个数字都判成「未兑现」。
-    **第三步：对每一个选题池各跑一遍，把命中项连同该池正文一起打出来逐条人工核对。**
-    ⚠️ **不要只看汇总数**（15 实际只有 1 个真缺陷）—— 汇总数会让人以为是 15 个缺陷。
-    便捷工具：`productivity/content-platforms/scripts/check_pool_type_false_positives.py`
-    （退出码 2 = 装配不出正文 = 该池字段结构与装配函数不匹配 = 假阳性来源）。
-    **新增装配函数前，先看 linter 里有没有现成的池型分叉助手**（`_units_for()` / `_ext_pair()`）——
-    自造第二套装配逻辑 = 迟早与主流程漂移。
-  - **🔴 2026-11-17 实测：报告里的「工具链状态」那一行，必须是**真的跑出来的**，不能是「应该没问题」**。当晚 `verify_cross_night_collisions.py` 首次真跑就是坏的（尾部多余一行 `</content>` ⇒ SyntaxError ⇒ exit 1）。**规则：任何新落地的校验器，在同一次会话里用真实生产参数跑一遍并记录退出码，才允许写进报告的「工具链状态」行。** 落地 ≠ 可用 —— 未被调用过的工具会静默腐烂。
+  **Roo……
+  - 📄 完整案例叙事已下沉 → `references/pitfalls-compression-archive.md`（§The-audit-tool-can-be-DEAD-a）
 - **⚠️ When a cron session's report says "audit passed", check the audit tool's own
     health at least once per session** — a green light from a tool you haven't run
     correctly is not evidence.
   - Full write-up (incl. the `PROMPT_HAS_CJK` and `PERIODIC_VS_YEARLY` rules added
     alongside the repair): `productivity/content-platforms/references/audit-tool-death-and-prompt-language.md`.
-
-- **⚠️ Even a GREEN content audit can hide a broken product: check the arithmetic and the cast (2026-11-01).** The diagnostic order above says "measure the product first, then diagnose delivery" — but `audit_rendered_article.py` measures **length and structure only** (word count, sections present, image prompts, hashtags, micro-post word range). It **cannot** see (a) numbers that don't add up, or (b) characters that don't exist. Measured on a shipped article: monthly fee 8000, children contributed 5000+5000+3000 = **13000**, and the text claimed the children "covered a bit over half"; a character declared "two daughters" then referred to "his son" twice; a micro-post split 220,000 as "73,000 each ×3 + 51,000" = **270,000**. Every green light stayed green: script exit 0, HTML rendered, Feishu attachment delivered, audit exit 0 "全部检查通过". The only thing that caught it was **reading the rendered prose and doing the arithmetic by hand**.
-  **Root cause: the article is assembled from multiple sources.** The pool entry lives in `toutiao_topics_extra.py`; the **expansion paragraphs live in a separate file `toutiao_story_extensions.py`** and are concatenated onto `story_a`/`story_b` at render time. Base text says "two daughters each give 1,000/month"; the expansion says "he doesn't ask his son for money". Neither is wrong alone — **together they are wrong**. No single-file check can find this.
-  **Rules:**
-  1. **When auditing a content cron, read the rendered prose end-to-end and add up the numbers.** Length checks passing means nothing if the subject matter is arithmetic.
-  2. **Run the self-consistency linter** (`productivity/content-platforms/scripts/lint_content_consistency.py`, `--pool`/`--extensions`/`--json`): `SUM_EXCEEDS_FEE`, `SPLIT_VS_TOTAL`, `FRACTION_MISMATCH`, `PERIOD_MONTH_YEAR`, `CONTRIB_VS_FEE`, `PHANTOM_SON`, `FREQ_CONFLICT`. Exit 0 = clean.
-  3. **Split story A and story B into separate units** for character checks — they are *different people*, and merging them makes legitimate references look like contradictions.
-  4. **Verify the parser against known-good examples.** Chinese money shorthand (`7万3` = 73000, `一万五` = 15000) must be expanded; a parser that misses it reports unit-confused nonsense that looks like a finding.
-     - **🔴 2026-11-02 实测：这类解析器的 bug 比内容缺陷更危险。** 修复那 6 处硬伤时发现 `lint_content_consistency.py` 把**每一种**口语缩写都算错了 —— `_num('7万3')` 返回 **70003**（应 73000）、`_num('一万五')` 返回 **10005**、`_num('十八万七')` 返回 **180007**、`_num('三百二十')` 返回 **500**。旧实现把「万位 + 省略尾数」当成了简单加法，而中文口语的尾数代表**下一级单位**（万→千、千→百、百→十）。
-     - **危害方向是双向的**：报出的「缺陷」里有一部分**只是解析器假象**。一个把「5万6」当「5」的解析器，会把**已经写对的文案**报成缺陷，害得修复方把对的改回错的 —— 你「修」了 6 处，其中几处原本就是对的。
-     - **规则：写完检查器必须用已知正确的算例验证解析器本身，不能只看「有没有报错」。** 本部署已在 `productivity/content-platforms/scripts/lint_content_consistency.py` 内置 `_self_test()`：15 个金额算例 + 正误两条拆分算例；自检失败 → **退出码 2**（工具坏了），与内容问题的 **退出码 1** 区分开。**改解析器后第一件事是看自检输出，而不是直接改文案。**
-     - **两套口径别混用**：`_num()` 返回**元**（`_num('5万6')` = 56000），`_wan_amount()` 返回**万**（`_wan_amount('5','6')` = 5.6），差 1e4 —— 两个函数的 docstring 都必须写清单位。
-  Full write-up + the 6 recorded defects: `productivity/content-platforms/references/content-self-consistency-checking.md`.
-
-- **🔴 2026-11-17 实测：审计/校验工具的第三种死法 —— `SyntaxError`（工具文件本身被污染），症状与「内容有问题」完全同码**。`productivity/content-platforms/scripts/verify_cross_night_collisions.py` **文件尾部被误粘一行 `</content>`**（疑似某次 XML 片段误粘进源码）⇒ 跑起来 stdout 空、stderr 一行 `SyntaxError: invalid syntax`、**exit 1**。
-  - ⚠️ **这是最危险的一种死法**：`lint_content_consistency.py` 的退出码语义里 **1 = 内容有问题（去改文案）**、**2 = 工具坏了（去修工具）**。而 `SyntaxError` 让 Python 直接以 **exit 1** 退出 ⇒ **照惯例「exit 1 ⇒ 改文案」会把本来正确的内容改坏**。
-  - **✅ 判别口诀（比「stdout 空 + stderr 有 traceback」更全）**：
-    | stderr 形状 | 判定 | 应对 |
-    |---|---|---|
-    | traceback，末行 `SyntaxError` | 工具**文件本身**坏了 | 修工具，别碰文案 |
-    | traceback，`NameError: xxx 未定义` | 工具内部坏了 | 修工具 |
-    | 无 traceback，有规则名 + 命中项 | 内容有问题 | 改文案 |
-  - **定位手法**：`tail -c 300 <file> | od -c | tail -20` 看最后几字节有没有多余的闭合标签行。
-  - 🔴 **附带教训：新落地的校验器会静默腐烂** —— 该脚本 2026-11-15 才落地，**当晚是第一次真正跑它**，一跑就是坏的。**「写完了」≠「可用」**。**任何新落地的校验器，在同一次会话里必须用真实生产参数真跑一遍并记录退出码**，否则它会在产线上烂几个月，直到某天有人碰巧调用它。
-  - 详见 `productivity/content-platforms/references/pool-wide-scan-and-linter-syntax-death.md`。
-- **🔴 2026-11-04 实测：自动化审计全绿 ≠ 内容对。** 那一晚头条号文章的
-  `audit_rendered_article.py` 报「✅ 全部检查通过」、`lint_content_consistency.py`
-  exit 0、脚本 exit 0、飞书附件已回查确认送达 —— **全绿**，但**人工逐段通读 +
-  手动加数**抓到 **9 处读者可见硬伤 + 3 段「孤儿扩写」**（扩写段落整个换成了
-  另一个故事，读者看到主角无预兆换人）。
-  - **原因**：自动化规则查的是**单字段内的算式**，查不到**跨段落/跨时间链**的
-    口径不一致 —— 起始年龄+储蓄率+目标额算不出结束年龄；主体段「退休金 3500」
-    与扩写段「3200」不同值；「凑了 2 万」与「护工 6000/月 × 2 月」跨句对不上。
-  - **规则：审计内容 cron 的产物，除了跑工具，必须逐段通读并手动加数。**
-    重点盯 6 条链：① 年龄链 ② 金额链 ③ 时长链 ④ 同属性取值链
-    ⑤ 币种/口径链 ⑥ 汇总链。
-    - **🆕 2026-11-07 补充第 7、8 条链**（当晚 audit/lint/脚本全绿、飞书已送达，
-      仍靠通读抓到 10 类硬伤）：
-      ⑦ **薪资链**（月薪 × 12 = 年薪？同一人月薪 15000 却写年薪 30万 → 差 40%）；
-      ⑧ **同角色称呼链**（扩写段的「二儿子/老三」与主体段的「大儿子/二女儿/小儿子」
-      是不是同一个人？主体换称谓读者不一定察觉，但「老三说」出现在只有两个儿子的
-      家庭里就是硬伤）。
-      ⚠️ **同属性取值链要按「同一人物」分组比，不是整篇比** —— 整篇比会把故事A的
-      退休金 4800 与故事B的 3200 误报成冲突（2026-11-07 实测踩过）。
-      ⑨ **金句复读链**（同一句金句在 viewpoint/action/*_ending 里整句复读；
-      判定范围**必须含 `story_a_ending`/`story_b_ending`**，只扫 viewpoint+action 会漏 3 处）。
-  - **通读主干 ≠ 读完**：整篇主干读下来仍可能漏 —— **扩写段落**是最容易藏
-    「整个故事被换掉」的地方（正文主干看不出异常，拼接后才发现主角换了人）。
-    扩写段落必须**单独读一遍**，并对照它对应的主体故事核人物。
-  - 详见 `productivity/content-platforms/references/orphan-extensions-and-hand-arithmetic-audit.md`。
-
-- **⚠️ 改内容源码时的批次原子性陷阱（2026-11-04）**：批量替换里**只要有一条匹配
-  失败**，实现若写成「全部成功才落盘」，**已成功的编辑会被一起丢弃**。实测 16 条
-  中 5 条因源文本措辞/空格差异匹配为 0 → 11 条成功编辑全丢、得重做一遍。
-  - **规则：逐条落盘** —— 每条替换成功后立即写文件，失败的单独报告、不回滚已成功的。
-  - **匹配失败时先打印实际源文本再改**：`src.find(key)` 拿到上下文比猜原文可靠得多。
-  - 改完对全部源文件跑 `py_compile`。
-
-- **⚠️ 给检查器加新规则时，先证明规则本身是对的（2026-11-04）**：本次给
-  `lint_content_consistency.py` 新增 3 条规则，**第一次跑就 4 条自检失败** ——
-  规则本身有 bug（金额单位口径混用差 1e4、「一个月 X」误把养老院月费当护工费、
-  人名抽取太贪婪抽出「房管局」「张问刘婶」）。
-  - **规则：新规则必须在 `_self_test()` 里配「正例不报 + 反例必报」两条算例**，
-    否则你不知道规则本身对不对。
-  - **退出码语义严格区分**：`0` = 内容干净 / `1` = 内容有问题 /
-    **`2` = 检查器自身自检失败（工具坏了，不是内容坏了）**。
-  - **自检失败时先看自检输出再动文案** —— 绝不能因为「规则报了假阳性」就去改
-    本来写对的文案（这会把对的改回错的，比漏报更危险）。
-  - **新规则要分清单位口径**：捕获组不含「万」时数值本身就是「万」，
-    组内自带「万」才是「元」；匹配「一个月 X」必须确认紧邻业务词。
-
+- **⚠️ Even a GREEN content audit can hide a broken product: check the arithmetic and the cast.**
+  - A content cron's failure modes split cleanly into two halves, and this skill owns the
+  **delivery** half. The **product** half — arithmetic, casts, promise fulfilment,
+  cross-field consistency — is owned by **`content-platforms`**; do not re-derive it here.
+  - **The cron-side rule that matters:** the article is assembled from multiple sources
+    (pool entry + expansion paragraphs in a separate file), so a single-……
+  - 📄 完整案例叙事已下沉 → `references/pitfalls-compression-archive.md`（§Even-a-GREEN-content-audit-c）
 - **⚠️ A dead mail channel is not a dead content channel (2026-10-25, failure #62).**
-  `toutiao-article-daily.py` renders its own `CHECKLIST_ITEMS` list into a visible
+  - `toutiao-article-daily.py` renders its own `CHECKLIST_ITEMS` list into a visible
   "发布前检查清单" block at the bottom of every article. When v1.1.0 changed the sender
   from `权权的HERMES（头条）` to `围炉家常话（头条）`, it updated `send_email()` but **not**
   the checklist string — so every article had been telling the user to verify a sender
   name the pipeline doesn't use. The checklist was not decoration this time; it was
-  *shipping*, so the drift reached the reader.
-  **Rule: any value that appears in more than one place (a config string, a brand
-  name, a from-header, a checklist item) must be asserted against its source of truth,
-  not eyeballed.** Cheap check for this deployment:
-  ```bash
-  # every identity string in the script, side by side
-  grep -rn "围炉家常话\|权权的HERMES" ~/.hermes/cron/scripts/*.py
-  # the checklist item that ships to the reader
-  grep -n "发件人是否为" ~/.hermes/cron/scripts/toutiao-article-daily.py
-  ```
-  Also note the **version banner drifted the same way** (`v1.1.0` in the file header and
-  `main()`'s stdout while the code was already at v1.2.x) — version strings are the most
-  commonly left-stale field in a long-lived script. Bump them in the same edit as the
-  feature they describe.
-
-- **⚠️ Two pools that rotate in lockstep will eventually pair a story with its own twin (2026-10-31; superseded 2026-11-15).** Cross-day LRU dedup guarantees a topic doesn't repeat *itself* — it says nothing about a long-form topic and a micro topic colliding *with each other*. On `toutiao-article-daily.py` six of the ten micro entries retell the **same story** as a long-form entry (same protagonist, same beats: 老周头/随份子/烧本子, 大伯/供学费/断联, 住院/分家产, 房产证/过户, 立遗嘱/子女沉默, 养老院/算账). Both pools are 10 items and LRU advances them **in lockstep**, so a micro topic and its long-form twin land on the same night ~1/10 of the time — the reader reads the same story twice in one email. **Measured: 28/40 random rotation phases hit at least one collision; 264/2400 nights (11%) duplicated.** The tell is in the *pool*, not the output: two direction names that sound different (`人情往来` vs `随礼人情`) can be the same story.
-  - **🔴 2026-11-15 更新：原修法（声明 shadow map 排除孪生）只是半程，最终修法是「换掉孪生 + 动态守卫」配套做。**
-    原因：shadow map 只能挡住**当晚**的碰撞；且守卫夜数若写死，会短于微头条
-    轮换周期（10 条 ÷ 2 条/晚 = 5 夜）⇒ 第 4、5 夜的孪生故事重新漏进来。
-    **实测**：11-14 微头条 = 11-10 长文《随礼人情》同一故事；
-    **11-15 微头条 = 11-11 长文《养老院》同一故事（距离 4 夜）**。
-    最终修法：① **换掉 6 条孪生微头条**（根治，`SHADOW_MAP` 收缩为空）
-    ② **守卫窗口动态推导** `ceil(池大小/每晚条数)+1`（防复发）。
-    **验证：修复前 12/60 夜碰撞 → 修复后 0/60，两池覆盖仍 10/10。**
-    详见 `productivity/content-platforms/references/guard-window-vs-rotation-period.md`。
-  - **⚠️ 检测脚本的回看窗口必须 ≥ 被测池的轮换周期** —— 原手写 `range(1,4)`
-    只看 3 夜 ⇒ 第 4、5 夜的碰撞统计不到，「碰撞 0/60」是假绿。
-  - **⚠️ 证明修复生效要跑「反向对照」**：只跑「现在碰撞 0 次」无法区分
-    「改好了」与「检测器坏了」；必须用旧池 + 旧映射 + 旧守卫跑一遍作对照。
-    已封装：`productivity/content-platforms/scripts/verify_cross_night_collisions.py --before-script <旧脚本备份>`。
-  - Also add a checklist line (it renders to the reader) so the rule is visible in the product.
-
-- **⚠️ Measure the ASSEMBLED product, not an intermediate return value (2026-10-30).**
-  A generator can look broken in an audit when the audit simply measures the wrong
-  object. Two concrete traps hit on `toutiao-article-daily.py`:
-  1. `generate_article()` returns **only the long-form** HTML. The micro-article HTML
-     is appended later, inside `send_email()`:
-     `full_html = html_content + '\n'.join(m['html'] for m in micro_articles)`.
-     Auditing `generate_article()`'s return value → "micro-articles are missing!" —
-     a false alarm. **Replicate the real assembly before measuring.**
-  2. A micro-post's word-count target (150-250) applies to the **source `content`
-     field**, not to the rendered block (content + dialogue highlight + image prompt +
-     tags). Measured here: `content` = 250 chars (compliant) but the rendered block
-     read 322 chars — looked like a violation, but the wrong object was measured.
-  **Rule: before asserting a threshold, confirm the threshold's unit and its scope
-  against the code that actually ships.** Use the ready-made auditor rather than
-  hand-rolled regexes (a non-greedy `<div class="prompt-text">.*?</div>` truncates at
-  the first inner `</div>`, letting English prompt text leak into the word count):
-  ```bash
-  python3 ~/.hermes/skills/productivity/content-platforms/scripts/audit_rendered_article.py \
-      ~/.hermes/cron/outbox/toutiao/<today>.html \
-      --pool ~/.hermes/cron/scripts/toutiao-article-daily.py
-  ```
-  It reports body Chinese-char count, section presence (故事A·对话/结局、故事B·结局、
-  观点、行动、金句1-3), image-prompt block count vs `no text` occurrences, hashtag
-  count, and micro `content` word-count range — exit 0 = clean, 1 = problems found.
-  Full recipe set: `productivity/content-platforms/references/topic-pool-rotation-and-length-engineering.md`
-  (缺陷四 + the two measurement traps).
-
+  *shippin……
+  - 📄 完整案例叙事已下沉 → `references/pitfalls-compression-archive.md`（§A-dead-mail-channel-is-not-a）
+- **⚠️ Two pools that rotate in lockstep will eventually pair a story with its own twin.**
+  - Two content pools advancing together can hand the reader the same story twice in
+  consecutive nights — a *delivery-quality* failure that no channel error reports.
+  **This skill's diagnostic contribution:** a green channel does not mean a green
+  experience; check the *product* for repetition across nights, not just for transport.
+  - **The full root-cause chain, the guard-window tuning table, and the
+    before/aft……
+  - 📄 完整案例叙事已下沉 → `references/pitfalls-compression-archive.md`（§Two-pools-that-rotate-in-loc）
+- **⚠️ Measure the ASSEMBLED product, not an intermediate return value.**
+  - A generator can look broken in an audit when the audit simply measures the wrong
+  object — and the reverse is equally true: a green audit can be measuring the wrong
+  object too. Two traps on `toutiao-article-daily.py`:
+  1. `generate_article()` returns **only the long-form** HTML; the micro-article HTML is
+     appended later inside `send_email()`. Auditing the return value ⇒ "micro-articles
+     are missing!" — a……
+  - 📄 完整案例叙事已下沉 → `references/pitfalls-compression-archive.md`（§Measure-the-ASSEMBLED-produc）
 - **⚠️ The "don't re-run the script" rule (Case R) and the "fix the content" mandate are in tension — resolve it by fixing the code, not by re-running (2026-10-28).**
-  Case R says: if the outbox already has today's backup, do NOT run the script again
+  - Case R says: if the outbox already has today's backup, do NOT run the script again
   (each extra run generates a *different* random topic and creates a second backup).
   But a session that audits the content and finds a defect still needs to ship the fix.
   The resolution that honours both:
   - **Do not re-run the production script** to prove the fix — that would duplicate
     today's already-delivered artifact.
-  - **Do fix the script**, so tonight and every future night benefit.
-  - **Prove the fix with an isolated harness**: load the module via
-    `importlib.util.spec_from_file_location(...)`, redirect its history/artifact paths to
-    **temp files**, render N days, assert on the output.
-  - **Diff the real history files afterwards** to prove the harness didn't touch
-    production state (`diff <(cat /tmp/bk_topic.json) outbox/<platform>/topic_history.json`).
-  This gives the user today's correct content *and* tomorrow's improved content, with
-  no duplicate delivery and no data corruption.
-  ⚠️ Corollary: the harness must inject its history path, and the module under test
-  must therefore accept one (`def _pick_micro_index(used_indices, history_path=None)`).
-  A function that hardcodes a global path can only be tested against production data.
-
+  -……
+  - 📄 完整案例叙事已下沉 → `references/pitfalls-compression-archive.md`（§The-don-t-re-run-the-script-）
 - **✅ Cheap proof that the script fired exactly once — check the crontab log + the
   outbox together (2026-11-05).** Two independent signals, both one-liners:
   ```bash
@@ -1168,76 +798,13 @@ ls -t ~/.hermes/cron/output/<job_id>/ | head -1 | xargs -I {} cat ~/.hermes/cron
   5. **README 追加完后再回填「修复后的复核」段落**（lint exit 0 / 假阳性检测 exit 0 /
      定点断言条数 / 金句复读自查命中数 / 微头条字数区间 / 假阳性人工核对结论），
      再核验一次标题数 —— **同一天不要新增第二个 `## ` 标题**，把复核写进当天段落里。
-- **🔴 2026-11-13 实测：新增第 17 类缺陷「房产归属链 / 故事前提链」—— 工具全绿仍漏掉最严重的一处。**
-  那晚头条号文章《69岁老人把房子过户给儿子后，儿媳说'这房子是我们的，你凭什么住'》
-  `audit exit 0` + `lint exit 0` + `FP checker exit 0` + 脚本 exit 0 + 飞书已回查送达 —— **全程绿灯**，
-  人工通读仍抓到 **7 处读者可见硬伤**，其中最严重的一处是**故事前提本身崩塌**：
-  正文写「**房子写的是孙涛的名字**」—— 房本早就是儿子的了，那「过户」这一整个动作就是**空操作**，
-  而标题、钩子、15 处「过户」、故事B 借条、观点、行动全建立在「过户」之上。
-  **现有 16 类规则全部只查「单字段内的算式」和「同篇跨字段重复」，没有一类查「故事前提与标题/场景是否自洽」。**
-  - **新增通读链 ⑪ 前提链**：故事的前提事实（**房本在谁名下 / 钱是谁出的 / 谁是 protagonists**）
-    必须与标题、钩子、场景动作一致。**先问一句「这个故事要成立，前提是什么」，再核前提有没有被正文改掉。**
-  - **同批抓到的其余 6 处**：地名链（房管所 vs 房管局）、时长链（三十年/三十六年/三十年 三处互斥）、
-    借条链三方矛盾（房本在谁手里）、金句复读 **9 字**（差 1 字低于 linter 的 10 字阈值 → 漏报）、
-    租房链断裂（儿子说租 1500 → 结局住 500 地下室，中间缺拒绝）、
-    微头条数值链（一天 200 × 半个月 = 3000，原文写 2800）。
-  - **🔑 关键方法论：`GOLDEN_ECHO` 的 10 字阈值是经验值不是真理** —— 那晚两处真实复读都恰好 **9 字**，
-    **差一个字就全绿漏报**。通读时按 **8 字**手动扫一遍全字段，才抓到。
-  - **🔧 修法优先级：改金句不改正文**（正文是故事，金句是提炼物）—— 与 11-11 的修法一致。
-  - **📌 另一处发现：查历史产物时发现 11-08 微头条「兄妹摊牌」与 11-09 长文「兄弟姐妹」同故事。**
-    回溯代码后确认 **11-08 跑的是 v1.2.5（影子守卫 11-11 才落地）** —— 用当晚 history 状态重放当前代码，
-    守卫**正确排除**了该选题。**撞车是「修复前的历史事件」，不是现网缺陷** ——
-    查历史撞车时**必须先核对当晚会话跑的是哪个版本**，否则会把已修好的问题当成新缺陷再修一遍。
-
-- **⚠️ 2026-11-09 实测：改文案会顶出「字数约束」，改完必须立刻重量**。
-  修一条微头条的逻辑矛盾时顺手加了一句，CJK 字数 **250 → 266**（上限 250）。
-  `lint_content_consistency.py` **不报**（它查数值链，不查字数区间）；
-  字数区间只有渲染后 `audit_rendered_article.py --pool` 才看得到 —— **但那要等下次跑脚本**。
-  **规则：改任何池条目后，立刻重新量该条 CJK 字数**（微头条 150–250），别等渲染。
-  同源纪律见 `content-platforms` 技能（同日新增的「锚点两个坑」条目）。
-- **⚠️ 2026-11-10 实测：`lint_content_consistency.py --pool` 指向错文件会 exit 2（参数用错，不是内容有问题）**。
-  `--pool` 必须指向**生成器脚本本身**（`toutiao-article-daily.py`），指向池数据文件
-  （`toutiao_topics_extra.py` 或 JSON）→ **exit 2**。
-  **exit 2 与 exit 1 语义完全相反**：exit 1 = 内容有问题（去改文案），
-  exit 2 = 工具/参数用错（去看 stderr，**别去改文案**）。
-  今晚差点因为 exit 2 去「修」本来正确的文案。先看 stderr 确认是哪一种再动手。
-- **⚠️ 2026-11-10 实测：多批修复时，「已改源码但未复渲染验证」必须写进报告，不能当作已完成**。
-  今晚 10 处内容硬伤分批修；最后一批（改掉「烧本子」在 `story_a_ending` 与 `ext_a` 的重复叙述）
-  **源码已写入且 `py_compile` 通过，但最终 harness 复渲染与复核因工具额度到顶没跑完**。
-  - **规则：会话里如果有**多批**修复，把第一批在会话早期就完整验证并落盘**；
-    跨会话的批次**必须在报告里明确写「本批未复渲染验证，明晚首跑后确认」**，并附上确切的复核命令：
-    ```bash
-    python3 ~/.hermes/skills/productivity/content-platforms/scripts/audit_rendered_article.py \
-      ~/.hermes/cron/outbox/toutiao/<明晚产物>.html \
-      --pool ~/.hermes/cron/scripts/toutiao-article-daily.py
-    ```
-  - **不要让「改了但没验证」的状态被后续会话当成「已验证」** —— 下一晚会读 README/报告；
-    如果它写「已修复」而实际未验证，缺陷会被当成已闭合而永远不再查。
-  - ⚠️ 验证时**退出码要单独看**，别用管道吞掉（`audit_rendered_article.py` exit 0=干净 / 1=有问题）。
-- **🔴 2026-11-15 实测：改生产源码时「`py_compile` 通过」≠「改动生效」—— 三个陷阱**
-  今晚落地跨夜碰撞修复时连续踩到三个坑，**症状都是编译通过但行为没变 / 直接语法错**：
-  1. **`str.replace(old, new, 1)` 可能命中 docstring 而不是代码** —— 文件头升级说明里
-     常出现与代码一样的字符串（本次 `SHADOW_GUARD_NIGHTS = 3` 在 docstring 和代码里各有一份），
-     `count=1` 命中了 docstring，**真正的代码处一个字没改** ⇒ 运行时值仍是旧值。
-     **修法**：锚点**必须带上下文**（前后各一行）；改完**回读断言**，并
-     **import 一次打印关键常量**确认它等于期望的新值。
-  2. **按花括号深度切分 list 字面量再 join，会留下孤立逗号** —— 切出的 entry 片段
-     带着尾逗号，首条 entry 的前导逗号又残留在旧 block 里 ⇒
-     `POOL = [\n    ,\n    {...` ⇒ `SyntaxError: invalid syntax`。
-     **修法**：批量改 list/dict 字面量时**重新生成整个字面量**，不要切片段再拼接。
-  3. **锚点照抄记忆必失败** —— 源码里是 `\'` 转义形式，或多/少一个字。
-     **修法**：匹配失败先 `src.find(prefix)` 打印真实上下文，别猜原文。
-  - **通用规则：改完源码必须做一次「运行时行为断言」** —— 最省事的形态 =
-    **改完 import 一次、打印关键常量/配置值**，确认它等于你期望的新值。
-    `py_compile` 只证明语法没错，证明不了改到了该改的地方。
-- **🔴 2026-11-15 实测：证明「改动带来了行为变化」要跑反向对照，不能只跑修复后**
-  「现在结果正确」无法区分「改好了」与「检测器坏了 / 本来就没这问题」。
-  正确做法：同一份种子 history、同一段模拟、同一份检测口径，**只换被改的参数**，
-  跑出「修复前」与「修复后」两组数据对比。
-  ⚠️ 反面对照的配置**必须从备份脚本 import 真实旧对象** —— 手搓 stub（只填
-  direction/title）会在渲染时 `KeyError: 'tags'` 炸掉。
-  ⚠️ 每组模拟开头要 `shutil.copy` 重置种子，否则第二轮跑的是第一轮的后状态、不可比。
-  已封装为 `productivity/content-platforms/scripts/verify_cross_night_collisions.py`（`--before-script` 做对照）。
+- **🔴 Tool-green does not mean product-correct — and "all green" has been disproven repeatedly.**
+  - Across many nights the full chain was green — `audit exit 0`, `lint exit 0`, script
+  `exit 0`, backup channel confirmed delivered by `message.get` — and manual reading still
+  found reader-visible defects. **The cron-side lesson is the meta-lesson:**
+  - **Automation only covers defect families that have been encoded.** A new family is
+    invisible to every tool until someone reads the prose and then encodes it.……
+  - 📄 完整案例叙事已下沉 → `references/pitfalls-compression-archive.md`（§Tool-green-does-not-mean-pro）
 
 ## Cross-reference: known recurring outage
 
@@ -1428,6 +995,7 @@ Related case-detail references:
 - `scripts/resend_outbox_html.py` — 授权码修复后补发 outbox 里的历史 HTML
 - `scripts/probe_smtp.py` — SMTP 凭据探针（465-SSL + 587-STARTTLS，判别 535 / silent-reject / connect 失败三种形态）
 - `productivity/content-platforms/scripts/verify_cross_night_collisions.py` — **跨夜同故事碰撞验证器**：检测内容 cron 的「长文 ↔ 微头条」两池跨夜撞同一故事。**支持 `--before-script` 反向对照**（用旧脚本备份跑「修复前」配置，证明改动真的带来了行为变化，而不只跑「现在 0 次」）。全程只读生产 history，零污染
+- `references/pitfalls-compression-archive.md` — **Pitfalls 完整案例叙事归档**：SKILL.md 里被压缩下沉的 20 条长案例的逐字原文（按 `§标签` 索引）。SKILL.md 正文只留可执行规则 —— 两者配合读
 - `references/smtp-credential-failure-case-study.md` — full SMTP transcripts
 - `references/case-m-last-status-masking.md` — `last_status=ok` masking
 - `references/feishu-stale-thread-id-delivery-failure.md` — stale `omt_` thread_id
